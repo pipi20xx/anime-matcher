@@ -117,3 +117,11 @@ cd anime-matcher && docker-compose up -d
 
 - [**自定义识别词 (预处理)**](./docs/recognition-rules.md): 作用于“文件名”解析前。用于屏蔽干扰字符、纠正标题误匹配、或强制锁定特定 TMDB ID。
 - [**自定义渲染词 (后处理)**](./docs/render-rules.md): 作用于“匹配结论”生成后。支持专家级的条件修正（基于 ID/季/集）、集数偏移计算、自动打标签等。
+
+---
+
+## 鸣谢参考项目
+
+- [anitopy](https://github.com/igorcmoura/anitopy)
+- [Symedia](https://github.com/shenxianmq/Symedia)
+- [MoviePilot](https://github.com/jxxghp/MoviePilot)
