@@ -1,0 +1,11 @@
+services:
+  anime-matcher:
+    build: .
+    ports:
+      - "8081:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AM_DATABASE_PATH=data/matcher_storage.db
+    restart: unless-stopped
