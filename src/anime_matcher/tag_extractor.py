@@ -140,7 +140,7 @@ class TagExtractor:
                 return g_candidate, [f"[规则][内置] 首部制作组: {g_candidate}"]
             
         base_name = re.sub(r"\.[a-zA-Z0-9]+$", "", filename)
-        tm = re.search(r"-([a-zA-Z0-9\.@[_\-]+)$", base_name) 
+        tm = re.search(r"-([^\s\[\]\(\){}]+)$", base_name) 
         if tm:
             raw = tm.group(1)
             g_candidate = raw
