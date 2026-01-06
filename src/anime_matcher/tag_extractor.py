@@ -140,16 +140,15 @@ class TagExtractor:
                 return g_candidate, [f"[规则][内置] 首部制作组: {g_candidate}"]
             
         base_name = re.sub(r"\.[a-zA-Z0-9]+$", "", filename)
-        tm = re.search(r"-([a-zA-Z0-9@]+)$", base_name) 
+        tm = re.search(r"-([a-zA-Z0-9\.@[_\-]+)$", base_name) 
         if tm:
             raw = tm.group(1)
             g_candidate = raw
-            if "@" in raw:
-                parts = raw.split("@")
-                if parts[-1].strip(): g_candidate = parts[-1].strip()
+            # 不再一刀切拆分 @，保留完整的 A@B 结构，这在 PT 站点中代表了“来源@发布组”
+
             if g_candidate.upper() not in NOT_GROUPS and is_valid_group(g_candidate):
                  msg = f"[规则][内置] 尾部制作组: {g_candidate}"
-                 if g_candidate != raw: msg += f" (从 '{raw}' 截取)"
+
                  return g_candidate, [msg]
         return None, []
 
