@@ -22,10 +22,12 @@
   "custom_groups": [],
   "custom_render": [],
   "force_filename": false,
-  "batch_enhancement": false,
-  "with_cloud": false,
-  "anime_priority": true,
-  "bangumi_priority": false,
+      "batch_enhancement": false,
+      "with_cloud": false,
+      "use_storage": false,
+      "anime_priority": true,
+      "bangumi_priority": false,
+  
   "tmdb_api_key": "string",
   "tmdb_proxy": "string",
   "bangumi_token": "string",
@@ -44,6 +46,7 @@
 | **force_filename**| `false` | bool | 强制单文件模式，屏蔽路径干扰词 |
 | **batch_enhancement** | `false`| bool | 开启合集/批处理增强逻辑 |
 | **with_cloud** | `false` | bool | **云端联动总开关**，开启后执行网络匹配 |
+| **use_storage** | `false` | bool | **智能记忆与本地缓存**: 启用后可自动记忆识别历史并缓存元数据 |
 | **anime_priority**| `true` | bool | 联网匹配时开启动画分类加权优化 |
 | **bangumi_priority**| `false` | bool | 优先检索 Bangumi 库并映射至 TMDB |
 | **tmdb_api_key** | `null` | string | TMDB 密钥 (也可通过环境变量配置) |
