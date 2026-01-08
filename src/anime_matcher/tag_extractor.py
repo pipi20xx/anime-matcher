@@ -140,15 +140,15 @@ class TagExtractor:
                 return g_candidate, [f"[规则][内置] 首部制作组: {g_candidate}"]
             
         base_name = re.sub(r"\.[a-zA-Z0-9]+$", "", filename)
+        # 修复正则语法：匹配末尾由横杠引导的、不含空格和各类括号的连续字符
+        # 正确闭合字符集 [^ ... ]
         tm = re.search(r"-([^\s\[\]\(\){}]+)$", base_name) 
         if tm:
             raw = tm.group(1)
             g_candidate = raw
-            # 不再一刀切拆分 @，保留完整的 A@B 结构，这在 PT 站点中代表了“来源@发布组”
-
+            # 过滤逻辑依然保留
             if g_candidate.upper() not in NOT_GROUPS and is_valid_group(g_candidate):
                  msg = f"[规则][内置] 尾部制作组: {g_candidate}"
-
                  return g_candidate, [msg]
         return None, []
 
@@ -256,46 +256,54 @@ class TagExtractor:
 
     @staticmethod
     def extract_subtitle_lang(filename: str) -> Tuple[Optional[str], List[str]]:
-        """[内置] 识别字幕语言"""
+        """[规范化] 识别并合成字幕语言标签"""
         logs = []
-        rules = [
-            (r"\[BIG5\]|\[BIG5_MP4\]|\[CHT\]", "繁体内嵌"), (r"\[GB\]|\[GB_MP4\]|\[GB_CN\]|\[CHS\]", "简体内嵌"),
-            (r"简体双语|简日特效字幕", "简日双语"), (r"\[CHI_JPN\]|JPSC&JPTC|SUBx3|\[jap_chs_cht\]", "简繁日内封"),
-            (r"ASSx1|SRTx1", "简体内封"), (r"\bASSx2|\bASS|\bSRTx2|\bSRT", "简繁内封"),
-            (r"(?i)(CHS|GB|SC)(&|_|＆|\x20)(CHT|BIG5|TC)(&|_|＆|\x20)JA?PN?", "简繁日内封"),
-            (r"(?i)(CHS|GB|SC)_JA?PN?(&|＆|\x20)(CHT|BIG5|TC)_JA?PN?", "简繁日内封"),
-            (r"(?i)(CHS|GB|SC)(_|&|＆|\x20)(CHT|BIG5|TC)", "简繁内封"),
-            (r"(?i)(CHS|GB|SC)_?(CHT|BIG5|TC)", "简繁内封"),
-            (r"(?i)(CHS|GB|SC)(_|&|＆|\x20)(-)JA?PN?", "简日双语"),
-            (r"(?i)(CHT|BIG5|TC)(_|&|＆|\x20)(-)JA?PN?", "繁日双语"),
-            (r"(?i)\[JA?PN?(_|&|＆|\x20)?(SC|CHS|GB)\]", "简日双语"),
-            (r"(?i)\[JA?PN?(_|&|＆|\x20)?(TC|CHT|BIG5)\]", "繁日双语"),
-            (r"简日内嵌|簡日內嵌", "简日内嵌"), (r"繁日内嵌|繁日內嵌", "繁日内嵌"), (r"简繁内嵌|簡繁內嵌", "简繁内嵌"), 
-            (r"简体内嵌|簡體內嵌", "简体内嵌"), (r"繁体内嵌|繁體內嵌", "繁体内嵌"),
-            (r"简繁日内封|簡繁日內封", "简繁日内封"), (r"简日内封|簡日內封", "简日内封"), (r"繁日内封|繁日內封", "繁日内封"), 
-            (r"简体内封|簡體內封", "简体内封"), (r"繁体内封|繁體內封", "繁体内封"),
-        ]
-        for pattern, label in rules:
-            if re.search(pattern, filename, re.I):
-                logs.append(f"[规则][内置] 字幕语言: {label}")
-                return label, logs
-        f_norm = filename.upper().replace("_", " ").replace("&", " ").replace("+", " ")
-        langs = set()
-        if re.search(r"(简日|CHS\s*JAP|SC\s*JP)", f_norm): langs.add("简日双语")
-        elif re.search(r"(繁日|CHT\s*JAP|TC\s*JP)", f_norm): langs.add("繁日双语")
-        elif re.search(r"(简繁|CHS\s*CHT|SC\s*TC)", f_norm): langs.add("简繁双语")
-        if not langs:
-            has_chs = re.search(r"(CHS|GB|SC|简体|简中)", f_norm)
-            has_cht = re.search(r"(CHT|BIG5|TC|繁体|繁中)", f_norm)
-            has_jp = re.search(r"(JAP|JP|日文|日语)", f_norm)
-            if has_chs and has_jp: langs.add("简日双语")
-            elif has_cht and has_jp: langs.add("繁日双语")
-            elif has_chs and has_cht: langs.add("简繁双语")
-            elif has_chs: langs.add("简体中文")
-            elif has_cht: langs.add("繁体中文")
-            elif has_jp: langs.add("日文")
-        if re.search(r"(ENG|EN|英文|英语)", f_norm):
-            if not langs: langs.add("英文")
-        final_lang = " & ".join(sorted(list(langs))) if langs else None
-        if final_lang: logs.append(f"[规则][内置] 字幕语言: {final_lang}")
-        return final_lang, logs
+        f_norm = filename.upper()
+        
+        # 1. 特征定义
+        has_chs = bool(re.search(r"简|簡|CHS|SC|GB|简体|简中", f_norm))
+        has_cht = bool(re.search(r"繁|CHT|TC|BIG5|繁体|繁中", f_norm))
+        has_jap = bool(re.search(r"日|JAP|JPN|JP|日文|日语", f_norm))
+        # 英文判定需严格边界，防止匹配到 SENSEI 等
+        has_eng = bool(re.search(r"(?<![a-zA-Z0-9])(ENG|EN|英文|英语)(?![a-zA-Z0-9])", f_norm))
+        
+        # 2. 类型定义
+        is_internal = bool(re.search(r"内封|內封|ASSx|SRTx|CHI_JPN|JPSC", f_norm))
+        is_embedded = bool(re.search(r"内嵌|內嵌|硬字幕|BIG5_MP4|GB_MP4", f_norm))
+        is_external = bool(re.search(r"外挂|外掛", f_norm))
+        is_dual = bool(re.search(r"双语|雙語|双语字幕", f_norm))
+        
+        # 3. 规范化合成逻辑
+        langs = []
+        if has_chs: langs.append("简")
+        if has_cht: langs.append("繁")
+        if has_jap: langs.append("日")
+        if has_eng: langs.append("英")
+        
+        if not langs: return None, []
+        
+        # 基础前缀判定：单语言用全称，多语言用简称
+        if len(langs) == 1:
+            mapping = {"简": "简体", "繁": "繁体", "日": "日文", "英": "英文"}
+            base = mapping.get(langs[0], langs[0])
+        else:
+            base = "".join(langs)
+        
+        # 属性判定
+        suffix = ""
+        if is_internal: suffix = "内封"
+        elif is_embedded: suffix = "内嵌"
+        elif is_external: suffix = "外挂"
+        elif is_dual: suffix = "双语"
+        else:
+            # 默认为内封 (常见于 WebRip/BDRip)
+            suffix = "内封" if ("RIP" in f_norm or "BD" in f_norm) else "内嵌"
+
+        final_label = f"{base}{suffix}"
+        
+        # 特殊情况修正
+        if final_label == "简日内封": final_label = "简日双语" # 习惯用法
+        if final_label == "繁日内封": final_label = "繁日双语"
+        
+        logs.append(f"[规则][规范化] 字幕语言: {final_label}")
+        return final_label, logs

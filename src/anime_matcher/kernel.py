@@ -166,11 +166,11 @@ def core_recognize(
 
     processed_title = processed_title.strip()
 
-    # 独立处理字幕语言
-    sub_val, sub_logs = TagExtractor.extract_subtitle_lang(processed_title)
+    # 独立处理字幕语言 (优先从原始标题提取以防止被噪音清洗误删)
+    sub_val, sub_logs = TagExtractor.extract_subtitle_lang(input_name)
     if sub_val:
         meta_obj.subtitle_lang = sub_val
-        s_logs.extend(sub_logs)
+    s_logs.extend(sub_logs)
 
     if s_logs:
         logger_stub.debug_out("STEP 2.5: 规格预处理与噪声屏蔽", s_logs)
