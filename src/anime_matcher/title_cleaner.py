@@ -69,6 +69,10 @@ class TitleCleaner:
                     word = word.strip()
                     if not word: continue
                     
+                    import logging
+                    # 使用 root logger 确保无视级别设置强制输出
+                    # logging.info(f"  [Regex Check] {word[:50]}...") 
+                    
                     try:
                         # 1. 集数偏移定位器
                         if "<>" in word and ">>" in word:
@@ -158,9 +162,14 @@ class TitleCleaner:
         # [NEW] 强制清洗装饰性符号 (★, ☆, ■, ◆, ●, etc.)
         temp = re.sub(r"[★☆■□◆◇●○•]", " ", temp)
         
-        # [FIX] 针对 Anitopy 的冒号崩溃 Bug 进行脱敏
-        # Anitopy 在处理 "Title: ... - 12" 这种结构时会因为内部预读 None 对象而崩溃
-        temp = temp.replace(":", " ")
+        # [FIX] 针对 Anitopy 的冒号和斜杠崩溃 Bug 进行脱敏
+        temp = temp.replace(":", " ").replace(" / ", "  ").replace("/", " ")
+        
+        # [NEW] 针对 " - 01 - " 结构的脱敏，防止 Anitopy 递归死锁
+        temp = re.sub(r" - (\d+) - ", r" [\1] ", temp)
+        
+        # [NEW] 针对超长标题中的重复符号进行压缩
+        temp = re.sub(r"[ \.\-\_=]{3,}", "  ", temp)
                 
         final_cleaned = re.sub(r"\s+", " ", temp).strip()
         debug_logs.append(f"清洗后结果: {final_cleaned}")

@@ -29,7 +29,7 @@ NOISE_WORDS = [
     r"连载|新番|合集|招募翻译|版本|出品|台版|港版|[a-zA-Z0-9]+字幕组|[a-zA-Z0-9]+字幕社|[★☆]*[0-9]{1,2}月新番[★☆]*",
     r"(?i)UNCUT|UNRATE|WITH EXTRAS|RERIP|SUBBED|PROPER|REPACK|Complete|Extended|Version|10bit",
     r"CD[ ]*[1-9]|DVD[ ]*[1-9]|DISK[ ]*[1-9]|DISC[ ]*[1-9]|[ ]+GB",
-    r"[多中英葡法俄日韩德意西印泰台港粤双文语简繁体特效内封官译外挂]+字幕",
+    r"[多中英葡法俄日韩德意西印泰台港粤双文语简繁体特效内封官译外挂]{2,}字幕?",
     r"(?i)YYeTs|人人影视|弯弯字幕组|Big5|GB|Dual-Audio|简体|繁体|双语|简中|繁中|日文|英文|内嵌|内封|特效|无修|外挂|简日|繁日|简繁|中日|中英|搬運",
     r"(?i)(?<![a-zA-Z0-9])(CHS|CHT|JAP|ENG|SUB)(?![a-zA-Z0-9])",
     r"(?i)(?<![a-zA-Z0-9])(PGS|ASS|SSA|SRT|VobSub)(?![a-zA-Z0-9])",
