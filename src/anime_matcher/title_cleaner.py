@@ -104,6 +104,7 @@ class TitleCleaner:
                             if target_is_matched:
                                 # 2.1 强制元数据提取: {[...]}
                                 if target.startswith("{["):
+                                    # ... (保持原样)
                                     match = re.search(pattern, temp, flags=re.I) or re.search(pattern, pure_filename, flags=re.I)
                                     if match:
                                         debug_logs.append(f"[规则]{source_tag} 命中提取规则: {word}")
@@ -112,7 +113,7 @@ class TitleCleaner:
                                             if "=" in item:
                                                 k, v = item.split("=", 1)
                                                 k, v = k.strip().lower(), v.strip()
-                                                # 处理公式逻辑
+                                                # 处理公式逻辑: 支持 {[e=\1@+12]} 风格
                                                 if k == "e" and "\\" in v and "@" in v:
                                                     grp_ref = re.search(r"\\(\d+)", v)
                                                     if grp_ref:
@@ -125,8 +126,12 @@ class TitleCleaner:
                                 
                                 # 2.2 普通正则替换
                                 else:
-                                    debug_logs.append(f"[规则]{source_tag} 执行正则替换: {pattern} -> {target}")
-                                    temp = re.sub(pattern, target, temp, flags=re.I)
+                                    # [Optimization] 防止重复叠加: 如果目标字符串已经包含了 target，且 pattern 只是 target 的一部分，则跳过
+                                    if target in temp and pattern in target:
+                                        pass
+                                    else:
+                                        debug_logs.append(f"[规则]{source_tag} 执行正则替换: {pattern} -> {target}")
+                                        temp = re.sub(pattern, target, temp, flags=re.I)
                         
                         # 3. 简单屏蔽词
                         else:
@@ -162,8 +167,12 @@ class TitleCleaner:
         # [NEW] 强制清洗装饰性符号 (★, ☆, ■, ◆, ●, etc.)
         temp = re.sub(r"[★☆■□◆◇●○•]", " ", temp)
         
-        # [FIX] 针对 Anitopy 的冒号和斜杠崩溃 Bug 进行脱敏
+        # [NEW] 针对 Anitopy 的冒号和斜杠崩溃 Bug 进行脱敏
         temp = temp.replace(":", " ").replace(" / ", "  ").replace("/", " ")
+        
+        # [NEW] 防止因正则替换产生的名称叠加 (如 桜都字幕组字幕组)
+        # 匹配 "字幕组/組" 连在一起的情况并合并
+        temp = re.sub(r"(字幕组|字幕組|字幕社|工作室)\s*(字幕组|字幕組|字幕社|工作室)", r"\1", temp, flags=re.I)
         
         # [NEW] 针对 " - 01 - " 结构的脱敏，防止 Anitopy 递归死锁
         temp = re.sub(r" - (\d+) - ", r" [\1] ", temp)
