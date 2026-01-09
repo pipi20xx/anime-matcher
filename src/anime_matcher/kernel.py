@@ -175,7 +175,7 @@ def core_recognize(
             s_logs.append(f"┣ [Shield] 自动剔除首部噪声块: {raw_bracket}")
 
     # 提取并抹除技术规格
-    from .constants import SUBTITLE_RE
+    from .constants import SUBTITLE_RE, ALIAS_RE
     shield_patterns = [
         (PIX_RE, TagExtractor.extract_resolution, "resource_pix"),
         (VIDEO_RE, TagExtractor.extract_video_encode, "video_encode"),
@@ -183,19 +183,23 @@ def core_recognize(
         (SOURCE_RE, TagExtractor.extract_source, "resource_type"),
         (DYNAMIC_RANGE_RE, TagExtractor.extract_dynamic_range, "video_effect"),
         (PLATFORM_RE, TagExtractor.extract_platform, "resource_platform"),
-        (SUBTITLE_RE, None, None), # 字幕标签仅执行屏蔽，提取已在后面独立完成
+        (SUBTITLE_RE, None, None), 
+        (ALIAS_RE, None, None), # [New] 屏蔽别名/检索用等元描述
     ]
     for pattern, extractor_func, attr_name in shield_patterns:
-        matches = list(re.finditer(pattern, processed_title))
-        if matches:
-            if extractor_func:
-                val, logs = extractor_func(processed_title)
-                if val and attr_name:
-                    setattr(meta_obj, attr_name, val)
-                    s_logs.extend(logs)
-            for m in matches: processed_title = processed_title.replace(m.group(0), " ")
-            processed_title = re.sub(r"\s+", " ", processed_title)
+        # [Fix] 统一采用 re.sub 进行正则屏蔽，确保复杂正则逻辑能够正确执行
+        if extractor_func and attr_name:
+            val, logs = extractor_func(processed_title)
+            if val:
+                setattr(meta_obj, attr_name, val)
+                s_logs.extend(logs)
+        
+        # 执行屏蔽：连带括号内容一起替换为空格
+        processed_title = re.sub(pattern, " ", processed_title)
+        # 合并由于屏蔽产生的连续空格
+        processed_title = re.sub(r"\s+", " ", processed_title)
     
+    # 强力噪音屏蔽 (包含容器后缀, 完结标志, 压制术语 and NOISE_WORDS)
     noise_shield = [
         r"(?i)\b(MKV|MP4|AVI|FLV|WMV|MOV|7z|ZIP|TS|7zip)\b",
         r"(?i)\b(Fin|END|Complete|Final)\b",
@@ -206,17 +210,30 @@ def core_recognize(
     for np in noise_shield:
         try: processed_title = re.sub(np, " ", processed_title)
         except: continue
+    
+    # [Optimize] 递归清理：合并空格并处理由于剥离产生的孤儿括号
     processed_title = re.sub(r"\s+", " ", processed_title)
-    shell_pattern = r"[\[\(\{【][\s\-\._/]*[\]\)\}】]"
-    for _ in range(2): 
+    # 匹配空括号或仅含空格/符号的括号：[ ], ( - ), etc.
+    shell_pattern = r"[\[\(\{（【][\s\-\._/]*[\]\)\}）】]"
+    # 匹配孤儿括号：前面没有对应开括号的闭括号，或后面没有对应闭括号的开括号
+    orphan_pattern = r"(?<![\[\(\{（【])[\]\)\}）】]|[\[\(\{（【](?![^\]\}）】]*[\]\)\}）】])"
+    
+    for _ in range(3): 
         processed_title = re.sub(shell_pattern, " ", processed_title)
-        processed_title = re.sub(r"\s+", " ", processed_title)
+        processed_title = re.sub(orphan_pattern, " ", processed_title)
+        processed_title = re.sub(r"\s+", " ", processed_title).strip()
 
     processed_title = processed_title.strip()
+    # [Fix] 字幕语言提取增强：优先看原始标题，如果没抓到则看预处理后的标题（可能命中了用户的自定义翻译规则）
     sub_val, sub_logs = TagExtractor.extract_subtitle_lang(input_name)
+    if not sub_val:
+        sub_val, sub_logs = TagExtractor.extract_subtitle_lang(processed_title)
+    
     if sub_val: meta_obj.subtitle_lang = sub_val
     s_logs.extend(sub_logs)
     if s_logs: logger_stub.debug_out("STEP 2.5: 规格预处理与噪声屏蔽", s_logs)
+    # [Debug] 输出最终脱敏结果，方便调试
+    # current_logs.append(f"┣ [Shield] 屏蔽后残留待解析标题: {processed_title}")
 
     # --- STEP 3: 内核解析 ---
     current_logs.append(f"┃")

@@ -290,6 +290,10 @@ class TagExtractor:
         has_chs = bool(re.search(r"简|簡|CHS|SC|GB|简体|简中", f_norm))
         has_cht = bool(re.search(r"繁|CHT|TC|BIG5|繁体|繁中", f_norm))
         has_jap = bool(re.search(r"日|JAP|JPN|JP|日文|日语", f_norm))
+        # [Optimize] 增加对工业标签的语义识别 (如 SRTx2 通常代表简繁双语)
+        if not (has_chs or has_cht) and re.search(r"[SA][RS][ST]X2", f_norm):
+            has_chs = has_cht = True
+        
         # 英文判定需严格边界，防止匹配到 SENSEI 等
         has_eng = bool(re.search(r"(?<![a-zA-Z0-9])(ENG|EN|英文|英语)(?![a-zA-Z0-9])", f_norm))
         
