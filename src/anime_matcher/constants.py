@@ -23,22 +23,27 @@ PLATFORM_RE = r"(?i)(?:-)?(?<![a-zA-Z0-9])(Baha|Bilibili|Netflix|NF|Amazon|AMZN|
 
 # 3. 深度噪音
 NOISE_WORDS = [
-    r"(?i)PTS|JADE|AOD|CHC|[A-Z]{1,4}TV[-0-9UVHDK]*",
+    r"(?i)PTS|JADE|AOD|CHC|(?!LINETV)[A-Z]{1,4}TV[-0-9UVHDK]*",
     r"(?i)[0-9]{1,2}th|[0-9]{1,2}bit|IMAX|BBC|XXX|DC$",
     r"(?i)Ma10p|Hi10p|Hi10|Ma10|10bit|8bit",
-    r"连载|新番|合集|招募翻译|版本|出品|台版|港版|[a-zA-Z0-9]+字幕组|[a-zA-Z0-9]+字幕社|[★☆]*[0-9]{1,2}月新番[★☆]*",
+    r"连载|新番|合集|招募翻译|版本|出品|台版|港版|搬运|搬運|[a-zA-Z0-9]+字幕组|[a-zA-Z0-9]+字幕社|[★☆]*[0-9]{1,2}月新番[★☆]*",
     r"(?i)UNCUT|UNRATE|WITH EXTRAS|RERIP|SUBBED|PROPER|REPACK|Complete|Extended|Version|10bit",
     r"CD[ ]*[1-9]|DVD[ ]*[1-9]|DISK[ ]*[1-9]|DISC[ ]*[1-9]|[ ]+GB",
-    r"[多中英葡法俄日韩德意西印泰台港粤双文语简繁體体特效内內封官译外挂]{3,}字幕?",
+    # [Optimize] 只有当出现明确的语言+类型组合时才视为噪声块，防止误杀如“六四位元字幕组”中的“字幕”
+    r"[多中英葡法俄日韩德意西印泰台港粤双文语简繁體体特效]{2,}[内內封官译外挂]{1,2}字幕?",
     r"(?i)YYeTs|人人影视|弯弯字幕组|Big5|GB|Dual-Audio|简体|繁体|繁體|双语|雙語|简中|繁中|日文|日语|英文|内嵌|內嵌|内封|內封|特效|无修|外挂|外掛",
     r"(?i)(?<![a-zA-Z0-9])(CHS|CHT|JAP|ENG|SUB)(?![a-zA-Z0-9])",
     r"(?i)(?<![a-zA-Z0-9])(PGS|ASS|SSA|SRT|VobSub)(?![a-zA-Z0-9])",
     r"(?i)(?<![a-zA-Z0-9])(CHS|CHT|JP|JPN|BIG5|GB|ENG|SC|TC)(_|-|&)*(CHS|CHT|JP|JPN|BIG5|GB|ENG|SC|TC)*(?![a-zA-Z0-9])",
-    r"(?i)[简繁中日英双雙多]+[体文语語]*[ ]*(MP4|MKV|AVC|HEVC|AAC|ASS|SRT)*",
+    # [Optimize] 约束语言标签：必须包含 体/文/语/字 等明确后缀，或者紧跟技术格式，防止误伤剧名中的“中/日”
+    r"(?i)\b[简繁中日英双雙多]+[体文语語]+[ ]*(MP4|MKV|AVC|HEVC|AAC|ASS|SRT)*\b",
 ]
 
 # 4. 发布组排除词
 NOT_GROUPS = "1080P|720P|4K|2160P|H264|H265|X264|X265|AVC|HEVC|AAC|DTS|AC3|DDP|ATMOS|WEB-DL|WEBRIP|BLURAY|BD|HD|HDR|SDR|DV|TRUEHD|HIRES|10BIT|EAC3|UHD 4K|Ma10p|Hi10p|Hi10|Ma10|(?i)REMUX"
+
+# 4.5 发布组语义特征词 (用于提高首部制作组识别的置信度)
+GROUP_KEYWORDS = r"组|組|社|制作|製作|字幕|工作|家族|学园|學園|压制|壓制|发布|發佈|协会|協會|联盟|聯盟|论坛|論壇|中心"
 
 # 5. 季集匹配
 EPISODE_PATTERNS = [

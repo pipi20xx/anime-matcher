@@ -66,53 +66,108 @@ def core_recognize(
     else:
         debug2_s = [f"保留强制季数 S{meta_obj.begin_season}"]
 
-    meta_obj.resource_platform, debug2_p = TagExtractor.extract_platform(processed_title)
+    # [Fix] 优先从原始输入提取发布平台，防止被预处理噪声逻辑误删
+    meta_obj.resource_platform, debug2_p = TagExtractor.extract_platform(input_name)
     logger_stub.debug_out("STEP 2: 元数据独立探测", debug2_y + debug2_s + debug2_p)
 
     # --- STEP 2.5: 技术规格预提取与标题屏蔽 (Noise Shielding) ---
     current_logs.append(f"┃")
     s_logs = []
     
-    # 制作组先行锁定：如果首部有 [Group]，提前识别并屏蔽
-    first_bracket = re.match(r"^\[([^\]]+)\]|^【([^】]+)】", processed_title)
-    if first_bracket:
-        candidate = first_bracket.group(1) or first_bracket.group(2)
-        # 简单校验：不是纯数字，且不包含分辨率关键词
-        if not candidate.isdigit() and not re.search(PIX_RE, candidate):
-             # [Optimization] 如果该词本身就是噪音词（如 "搬運"），则跳过制作组识别
-             is_noise = False
-             for nw in NOISE_WORDS:
-                 if re.search(nw, candidate, flags=re.I):
-                     is_noise = True
-                     break
-             
-             if not is_noise:
-                 team, t_logs = TagExtractor.extract_release_group(processed_title)
-                 if team:
-                     meta_obj.resource_team = team
-                     s_logs.extend(t_logs)
-                     # 强力移除首部字幕组块，防止干扰
-                     processed_title = re.sub(r"^\[[^\]]+\]|^【[^】]+】", "", processed_title, count=1).strip()
-                     s_logs.append(f"┣ [Shield] 提前屏蔽首部制作组: {candidate}")
-                 else:
-                     s_logs.append(f"┣ [Shield] 忽略首部疑似制作组但非核心组的块: {candidate}")
-             else:
-                 s_logs.append(f"┣ [Shield] 发现首部块为已知噪音词，已忽略: {candidate}")
+    # [Strategy] 顶级优先级：全局自定义制作组扫描
+    if custom_groups:
+        import zhconv
+        sorted_groups = sorted([g for g in custom_groups if g and len(g.strip()) >= 2], key=len, reverse=True)
+        for g in sorted_groups:
+            g_clean = re.sub(r"^\[(?:REMOTE|私有|社区|内置)\]", "", g).strip()
+            if not g_clean: continue
+            
+            # [Crucial] 平台词与技术规格排他性检查
+            from .constants import NOT_GROUPS
+            if re.search(PLATFORM_RE, g_clean) or re.search(rf"(?i)^({NOT_GROUPS})$", g_clean):
+                continue
+            
+            g_simp, g_trad = zhconv.convert(g_clean, "zh-hans"), zhconv.convert(g_clean, "zh-hant")
+            p_esc, s_esc, t_esc = re.escape(g_clean), re.escape(g_simp), re.escape(g_trad)
+            boundary_chars = r"a-zA-Z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff"
+            pattern = rf"(?i)(?<![{boundary_chars}])({p_esc}|{s_esc}|{t_esc})(?![{boundary_chars}])"
+            
+            match = re.search(pattern, processed_title)
+            if match:
+                # [Strategy] 发现锚点后进行智能扩张，以捕获联合发布块 (GroupA & GroupB)
+                start, end = match.start(), match.end()
+                l_pos, r_pos = start, end
+                
+                # 向上扩张：直到遇到硬定界符或非连接性质的空格
+                # 连接符判定：&, +, x 以及它们周围的空格
+                while l_pos > 0:
+                    prev = processed_title[l_pos-1]
+                    if prev in "★☆[]【】(){}": break
+                    if prev == " ":
+                        # 允许跨越连接符周围的空格
+                        if l_pos > 1 and processed_title[l_pos-2] in "&+x":
+                            l_pos -= 1; continue
+                        else: break
+                    if prev in "&+x": # 命中连接符，继续向左
+                        l_pos -= 1; continue
+                    l_pos -= 1
+                
+                # 向下扩张
+                while r_pos < len(processed_title):
+                    nxt = processed_title[r_pos]
+                    if nxt in "★☆[]【】(){}": break
+                    if nxt == " ":
+                        if r_pos < len(processed_title)-1 and nxt in "&+x":
+                            r_pos += 1; continue
+                        else: break
+                    if nxt in "&+x":
+                        r_pos += 1; continue
+                    r_pos += 1
+                
+                full_block = processed_title[l_pos:r_pos].strip(" &+x")
+                meta_obj.resource_team = full_block
+                s_logs.append(f"┣ [Shield] 全局匹配命中制作组(含联合扩张): {full_block}")
+                
+                # 执行精准切除
+                processed_title = (processed_title[:l_pos] + " " + processed_title[r_pos:]).strip()
+                processed_title = re.sub(r"\s+", " ", processed_title)
+                break
 
-                 # [Optimization] 如果移除首部组名后，标题仍然以括号开头，
-                 # 则将该括号“脱壳”，防止 Anitopy 再次将其误判为制作组
-                 if processed_title.startswith("[") or processed_title.startswith("【"):
-                     # 寻找对应的闭合括号
-                     end_char = "]" if processed_title.startswith("[") else "】"
-                     end_idx = processed_title.find(end_char)
-                     if end_idx > 0:
-                         # 提取括号内容并替换掉原括号
-                         inner_content = processed_title[1:end_idx]
-                         processed_title = inner_content + " " + processed_title[end_idx+1:]
-                         processed_title = processed_title.strip()
-                         s_logs.append(f"┣ [Optimization] 对次级括号执行脱壳处理，引导内核识别标题")
+    # 预清洗：剥离掉开头的纯噪声中括号块
+    for _ in range(2):
+        leading_noise = re.match(r"^\[(?:搬运|搬運|新番|连载|連載|合集)\]|^【(?:搬运|搬運|新番|连载|連載|合集)】", processed_title)
+        if leading_noise:
+            noise_text = leading_noise.group(0)
+            processed_title = processed_title[len(noise_text):].strip()
+            s_logs.append(f"┣ [Shield] 自动剔除首部噪声块: {noise_text}")
 
-    # 提取并抹除的正则列表
+    # 制作组先行锁定：探测通用括号
+    if not meta_obj.resource_team:
+        for _ in range(3):
+            first_bracket = re.match(r"^\[([^\]]+)\]|^【([^】]+)】", processed_title)
+            if not first_bracket: break
+            
+            candidate = first_bracket.group(1) or first_bracket.group(2)
+            if candidate.strip() and not candidate.isdigit() and not re.search(PIX_RE, candidate):
+                 is_noise = False
+                 for nw in NOISE_WORDS:
+                     if re.search(nw, candidate, flags=re.I):
+                         is_noise = True; break
+                 
+                 if not is_noise:
+                     team, t_logs = TagExtractor.extract_release_group(processed_title)
+                     if team:
+                         meta_obj.resource_team = team
+                         s_logs.extend(t_logs)
+                         processed_title = re.sub(r"^\[[^\]]+\]|^【[^】]+】", "", processed_title, count=1).strip()
+                         s_logs.append(f"┣ [Shield] 提前屏蔽首部制作组: {team}")
+                         break
+            
+            raw_bracket = first_bracket.group(0)
+            processed_title = processed_title[len(raw_bracket):].strip()
+            s_logs.append(f"┣ [Shield] 忽略首部无效/噪声块并继续探测: {raw_bracket}")
+
+    # 提取并抹除技术规格
     shield_patterns = [
         (PIX_RE, TagExtractor.extract_resolution, "resource_pix"),
         (VIDEO_RE, TagExtractor.extract_video_encode, "video_encode"),
@@ -130,50 +185,34 @@ def core_recognize(
                 if val and attr_name:
                     setattr(meta_obj, attr_name, val)
                     s_logs.extend(logs)
-            # 原地屏蔽：保持结构，避免产生大量碎片空格
             for m in matches:
-                # 尽量只替换内容，不破坏前后的点
-                raw_text = m.group(0)
-                processed_title = processed_title.replace(raw_text, " ")
-            
-            # 合并连续空格
+                processed_title = processed_title.replace(m.group(0), " ")
             processed_title = re.sub(r"\s+", " ", processed_title)
     
-    # 强力噪音屏蔽 (包含容器后缀, 完结标志, 压制术语 and NOISE_WORDS)
+    # 强力噪声屏蔽
     noise_shield = [
-        r"(?i)\b(MKV|MP4|AVI|FLV|WMV|MOV|7z|ZIP|TS|7zip)\b", # 常见后缀
-        r"(?i)\b(Fin|END|Complete|Final)\b", # 英文完结标志
-        r"(?i)(完结|全集|合集)", # 中文完结标志
-        r"(?i)(精校|修正|修复|重制|修正版|无修正|未删减)", # 质量术语
-        *NOISE_WORDS # 库内所有噪音
+        r"(?i)\b(MKV|MP4|AVI|FLV|WMV|MOV|7z|ZIP|TS|7zip)\b",
+        r"(?i)\b(Fin|END|Complete|Final)\b",
+        r"(?i)(完结|全集|合集)",
+        r"(?i)(精校|修正|修复|重制|修正版|无修正|未删减)",
+        *NOISE_WORDS
     ]
     for np in noise_shield:
-        try:
-            if np and processed_title:
-                processed_title = re.sub(np, " ", processed_title)
-        except:
-            continue
+        try: processed_title = re.sub(np, " ", processed_title)
+        except: continue
     
-    # 最后统一清理一下空格，并执行“空壳括号”保险清理
     processed_title = re.sub(r"\s+", " ", processed_title)
-    
-    # 保险清理：移除被掏空后的空壳括号 (如 [ ], [ - ], ( ), 【 】)
-    # 只有当括号内全为空格或常用分隔符时，才视为垃圾并清理
     shell_pattern = r"[\[\(\{【][\s\-\._/]*[\]\)\}】]"
-    for _ in range(2): # 跑两遍以处理可能产生的嵌套壳
+    for _ in range(2): 
         processed_title = re.sub(shell_pattern, " ", processed_title)
         processed_title = re.sub(r"\s+", " ", processed_title)
 
     processed_title = processed_title.strip()
-
-    # 独立处理字幕语言 (优先从原始标题提取以防止被噪音清洗误删)
     sub_val, sub_logs = TagExtractor.extract_subtitle_lang(input_name)
-    if sub_val:
-        meta_obj.subtitle_lang = sub_val
+    if sub_val: meta_obj.subtitle_lang = sub_val
     s_logs.extend(sub_logs)
 
-    if s_logs:
-        logger_stub.debug_out("STEP 2.5: 规格预处理与噪声屏蔽", s_logs)
+    if s_logs: logger_stub.debug_out("STEP 2.5: 规格预处理与噪声屏蔽", s_logs)
 
     # --- STEP 3: 内核解析 ---
     current_logs.append(f"┃")
@@ -181,9 +220,11 @@ def core_recognize(
     current_logs.append(f"┃ [DEBUG][STEP 3]: 调用 Anitopy 语义内核 (脱敏标题: {safe_title})")
     info_dict = {}
     try:
-        info_dict = AnitopyWrapper.parse(processed_title)
+        if safe_title: info_dict = AnitopyWrapper.parse(processed_title) or {}
+        else:
+            current_logs.append(f"┣ ⚠️ 标题经预处理后为空，跳过内核解析")
+            info_dict = {}
         
-        # 记录所有非空解析字段 (排除掉已知的冗余字段)
         ignore_keys = ["file_name", "file_extension", "file_type"]
         found_any = False
         for k, v in info_dict.items():
@@ -191,25 +232,10 @@ def core_recognize(
                 val_str = ", ".join([str(i) for i in v]) if isinstance(v, list) else str(v)
                 current_logs.append(f"┣ [RAW] {k}: {val_str}")
                 found_any = True
-        
-        if not found_any:
-            current_logs.append(f"┣ ⚠️ 内核未发现任何语义属性")
-            
+        if not found_any: current_logs.append(f"┣ ⚠️ 内核未发现任何语义属性")
         current_logs.append(f"┗ ✅ 内核解析完成")
-    except Exception as e:
-        current_logs.append(f"┗ ❌ 内核解析异常: {str(e)}")
+    except Exception as e: current_logs.append(f"┗ ❌ 内核解析异常: {str(e)}")
 
     # --- STEP 4-7: 后处理与精炼 ---
-    PostProcessor.process(
-        meta_obj, 
-        info_dict, 
-        input_name, 
-        processed_title, 
-        current_logs, 
-        custom_groups, 
-        logger_stub, 
-        batch_enhancement=batch_enhancement, 
-        fingerprint_data=fingerprint_data
-    )
-    
+    PostProcessor.process(meta_obj, info_dict, input_name, processed_title, current_logs, custom_groups, logger_stub, batch_enhancement=batch_enhancement, fingerprint_data=fingerprint_data)
     return meta_obj

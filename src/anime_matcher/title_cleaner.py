@@ -179,6 +179,14 @@ class TitleCleaner:
         
         # [NEW] 针对超长标题中的重复符号进行压缩
         temp = re.sub(r"[ \.\-\_=]{3,}", "  ", temp)
+        
+        # [NEW] 彻底清除不可见字符 (零宽空格等)
+        temp = re.sub(r"[\u200b-\u200f\uFEFF\u202a-\u202e]", "", temp)
+        
+        # [Fix] 移动空壳括号保险清理到最后：移除被掏空后的空壳 (如 [ ], ( ), 【 】)
+        temp = re.sub(r"[\[\(\{【][\s\-\._/]*[\]\)\}】]", " ", temp)
+        for _ in range(2): 
+            temp = re.sub(r"[\[\(\{【][\s\-\._/]*[\]\)\}】]", " ", temp)
                 
         final_cleaned = re.sub(r"\s+", " ", temp).strip()
         debug_logs.append(f"清洗后结果: {final_cleaned}")
@@ -238,11 +246,12 @@ class TitleCleaner:
 
         # [NEW] 残留字幕/质量标签二次清洗
         # 针对 Step 1 没洗干净的繁体/碎片词 (如: 簡 內封, AVC, AAC)
+        # [Optimize] 字幕标签剥离逻辑：增加边界限制，防止切碎制作组名
         residual_tags = [
             r"(?i)\b(?:AVC|HEVC|AAC|AC3|DTS|TRUEHD|OPUS)\b",
-            r"[简簡繁正中日双雙英多][体文语語]?",
-            r"(?i)(?:内封|內封|内嵌|內嵌|外挂|外掛|字幕|特效|TC|SC|CHT|CHS)",
-            r"(?i)(?:WebRip|WebDL|BluRay|BD|HDTV)"
+            r"\b[简簡繁正中日双雙英多][体文语語]\b",
+            r"(?i)(?<![\u4e00-\u9fa5])(?:内封|內封|内嵌|內嵌|外挂|外掛|字幕|特效|TC|SC|CHT|CHS)(?![\u4e00-\u9fa5])",
+            r"(?i)\b(?:WebRip|WebDL|BluRay|BD|HDTV)\b"
         ]
         for tag in residual_tags:
             if re.search(tag, temp):
@@ -294,7 +303,9 @@ class TitleCleaner:
                     return cn, en, debug_logs
 
         # [Fix] 扩展符号清理，包含东亚括号 【】
-        title = re.sub(r"[\[\]\-\._/【】]+", " ", residual_title).strip()
+        # [Optimize] 增加对开头残留连接符 (如 &) 的清理
+        title = re.sub(r"^[&x\+\s\-_/]+", "", residual_title).strip()
+        title = re.sub(r"[\[\]\-\._/【】]+", " ", title).strip()
         debug_logs.append(f"[拆分] 待拆分标题: {title}")
         
         # 兼容旧逻辑：如果还残留 / (虽然上面的 re.sub 已经基本洗掉了，但保留作为兜底)
@@ -334,9 +345,17 @@ class TitleCleaner:
         if cn_name: debug_logs.append(f"[拆分] 提取到中文剧名块: {cn_name}")
         
         en_name = en_match[0].strip() if en_match else None
-        # [Fix] 如果英文名末尾还残留了 E01/01 这种模式 (可能由 Anitopy 误吞)，再次强制切除
+        # [Fix] 英文名校验逻辑：防止将制作组碎屑(SFSub)误认为标题
         if en_name:
-            en_name = re.sub(r"(?i)\s+(?:EP|E|S|#)?\d+$", "", en_name).strip()
+            # 1. 过滤掉极短的单词 (如 &)
+            if len(en_name) < 2: en_name = None
+            # 2. 如果英文名全大写且很短，或者包含 & 等连接符，很有可能是残留的制作组
+            elif (en_name.isupper() and len(en_name) < 6) or "&" in en_name:
+                debug_logs.append(f"[拆分] 丢弃疑似制作组残骸的英文名: {en_name}")
+                en_name = None
+            # 3. 如果英文名末尾还残留了 E01/01 这种模式 (可能由 Anitopy 误吞)，再次强制切除
+            else:
+                en_name = re.sub(r"(?i)\s+(?:EP|E|S|#)?\d+$", "", en_name).strip()
 
         if en_name and cn_name and en_name.lower() in cn_name.lower(): en_name = None
         if en_name: debug_logs.append(f"[拆分] 提取到英文特征块: {en_name}")

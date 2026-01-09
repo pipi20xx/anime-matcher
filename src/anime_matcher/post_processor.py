@@ -20,6 +20,7 @@ class PostProcessor:
         - Specs Extraction
         - Final Type Determination
         """
+        if info_dict is None: info_dict = {}
         # --- STEP 4: 属性冲突校验 ---
         current_logs.append(f"┃")
         v_logs = []
@@ -117,10 +118,36 @@ class PostProcessor:
                 raw_name = raw_name.replace(meta_obj.resource_team, " ")
             
             if custom_groups:
-                for g in custom_groups:
-                    if g and g in raw_name:
-                        current_logs.append(f"┣ [清洗] 从标题中剔除自定义制作组: {g}")
-                        raw_name = raw_name.replace(g, " ")
+                import zhconv
+                # 排序：长词优先匹配
+                sorted_groups = sorted([g for g in custom_groups if g and len(g.strip()) >= 2], key=len, reverse=True)
+                for g in sorted_groups:
+                    # [Fix] 剥离元数据前缀标签
+                    g_clean = re.sub(r"^\[(?:REMOTE|私有|社区|内置)\]", "", g).strip()
+                    if not g_clean: continue
+
+                    g_simp = zhconv.convert(g_clean, "zh-hans")
+                    g_trad = zhconv.convert(g_clean, "zh-hant")
+                    
+                    # 构造匹配模式：1. 原始匹配 2. 简体匹配 3. 繁体匹配
+                    # [Upgrade] 提纯阶段同样使用增强型边界判定，防止误杀剧名的一部分
+                    boundary_chars = r"a-zA-Z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff"
+                    patterns = [re.escape(g_clean), re.escape(g_simp), re.escape(g_trad)]
+                    matched = False
+                    
+                    for p in set(patterns):
+                        # [Upgrade] 提纯阶段使用智能扩张逻辑
+                        pattern = rf"(?i)(?<![{boundary_chars}])([&x\+\s\-_/]*{p}[&x\+\s\-_/]*)(?![{boundary_chars}])"
+                        match = re.search(pattern, raw_name)
+                        if match:
+                            full_match = match.group(0)
+                            current_logs.append(f"┣ [清洗] 从剧名中强制剔除制作组及其关联块: {full_match.strip()}")
+                            raw_name = raw_name.replace(full_match, " ")
+                            matched = True
+                            # 继续循环，可能剧名里还粘着其他组名（虽然少见）
+                    
+                # 再次清理空格
+                raw_name = re.sub(r"\s+", " ", raw_name).strip()
 
             # [Fix] 扩充无效标题黑名单，防止 Anitopy 将 'MP4', '1080P' 等误判为标题
             invalid_keywords = ["MOVIE", "OVA", "TV", "BD", "MP4", "MKV", "AVI", "BIG5", "GB", "CHS", "CHT", "JAP", "ENG", "BIG5_MP4", "GB_MP4", "WEB-DL"]
@@ -193,22 +220,35 @@ class PostProcessor:
         current_logs.append(f"┃")
         debug6 = []
         
-        # [Strategy] 优先策略：先扫描自定义制作组库
+        # [Strategy] 优先策略：如果预处理 (Step 2.5) 已经锁定了制作组（特别是联合发布情况），则直接继承
         matched_from_lib = False
+        if meta_obj.resource_team:
+            debug6.append(f"┣ [制作组] 继承自预处理 (包含联合发布检测): {meta_obj.resource_team}")
+            matched_from_lib = True
+        
         from .constants import NOT_GROUPS
-        if custom_groups:
+        if not matched_from_lib and custom_groups:
+            import zhconv
             # 排序：长词优先匹配，防止短词拦截长词
             sorted_groups = sorted([g for g in custom_groups if g and len(g.strip()) >= 2], key=len, reverse=True)
             for g in sorted_groups:
-                g_clean = g.strip()
+                # [Fix] 剥离元数据前缀标签
+                g_clean = re.sub(r"^\[(?:REMOTE|私有|社区|内置)\]", "", g).strip()
+                if not g_clean: continue
+
+                g_simp = zhconv.convert(g_clean, "zh-hans")
+                g_trad = zhconv.convert(g_clean, "zh-hant")
+                
                 if re.search(PLATFORM_RE, g_clean): continue
                 
                 # [Upgrade] 严格边界匹配逻辑：
-                # 使用前后负向断言，确保制作组名是一个独立的块，而不是其他单词的一部分
-                # 这样可以彻底解决 'ANi' 匹配到 'Anime' 的问题
-                group_pattern = rf"(?i)(?<![a-zA-Z0-9]){re.escape(g_clean)}(?![a-zA-Z0-9])"
+                # 同时支持原始、简体、繁体三个版本的匹配，并应用 CJK 边界保护
+                p_esc, s_esc, t_esc = re.escape(g_clean), re.escape(g_simp), re.escape(g_trad)
+                boundary_chars = r"a-zA-Z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff"
+                group_pattern = rf"(?i)(?<![{boundary_chars}])({p_esc}|{s_esc}|{t_esc})(?![{boundary_chars}])"
                 
-                if re.search(group_pattern, input_name):
+                # [Fix] 同时匹配原始名和预处理名
+                if re.search(group_pattern, input_name) or re.search(group_pattern, processed_title):
                     # [Check] 即使匹配到自定义库，也要核验是否属于非法技术词
                     if re.search(f"(?i)^({NOT_GROUPS})$", g_clean):
                         debug6.append(f"┣ [制作组校验] 自定义库命中非法词({g_clean})，已忽略并继续搜索")
@@ -220,12 +260,10 @@ class PostProcessor:
                     break
 
         if not matched_from_lib:
-            if meta_obj.resource_team:
-                debug6.append(f"┣ [制作组] 继承自预处理: {meta_obj.resource_team}")
-            else:
-                team, d6 = TagExtractor.extract_release_group(input_name, info_dict.get("release_group"))
-                meta_obj.resource_team = team
-                if d6: debug6.extend(d6)
+            # 只有前面都没匹配到，才尝试普通的标签提取
+            team, d6 = TagExtractor.extract_release_group(input_name, info_dict.get("release_group"))
+            meta_obj.resource_team = team
+            if d6: debug6.extend(d6)
         
         # [Sync] 来源同步
         if meta_obj.resource_type:
@@ -313,3 +351,7 @@ class PostProcessor:
                 if meta_obj.begin_season is None: meta_obj.begin_season = 1
             else: 
                 meta_obj.type = MediaType.MOVIE
+            
+            # [Fix] 如果提取到了季号，不管有没有集数，都视为 TV
+            if meta_obj.begin_season:
+                meta_obj.type = MediaType.TV

@@ -113,6 +113,7 @@ class TagExtractor:
     @staticmethod
     def extract_release_group(filename: str, info_group: Optional[str] = None) -> Tuple[Optional[str], List[str]]:
         """强化版制作组提取"""
+        from .constants import GROUP_KEYWORDS, NOT_GROUPS
         logs = []
         def is_valid_group(g: str) -> bool:
             if not g: return False
@@ -122,6 +123,20 @@ class TagExtractor:
             if "@" in g:
                 parts = g.split("@")
                 if len(parts[-1].strip()) < 2: return False
+            
+            # [Optimization] 语义特征强制校验：
+            # 如果包含中文/日文，则必须包含制作组常用后缀关键词
+            if re.search(r"[\u4e00-\u9fa5\u3040-\u30ff]", g):
+                has_keyword = bool(re.search(GROUP_KEYWORDS, g))
+                # 必须包含制作组后缀
+                if not has_keyword:
+                    return False
+                # 排除明显的剧名特征 (如 [第01话])
+                has_title_feature = bool(re.search(r"第?\d+[集话話回季]|[上下]卷", g))
+                if has_title_feature:
+                    return False
+            
+            # 对于纯英文/数字组名 (如 ANi, VCB-Studio)，只要长度 >= 2 即可通过
             digit_count = sum(c.isdigit() for c in g)
             if digit_count / len(g) > 0.8: return False
             return True
@@ -133,9 +148,9 @@ class TagExtractor:
         if info_group and info_group.upper() not in NOT_GROUPS and is_valid_group(info_group):
             return info_group, [f"[规则][内置] 制作组: {info_group}"]
         
-        gm = re.match(r"^\[([^\]]+)\]", filename)
+        gm = re.match(r"^\[([^\]]+)\]|^【([^】]+)】", filename)
         if gm:
-            g_candidate = gm.group(1)
+            g_candidate = gm.group(1) or gm.group(2)
             if not re.search(PLATFORM_RE, g_candidate) and is_valid_group(g_candidate):
                 return g_candidate, [f"[规则][内置] 首部制作组: {g_candidate}"]
             
@@ -158,7 +173,7 @@ class TagExtractor:
         match = re.search(PLATFORM_RE, filename)
         if match:
             raw = match.group(0).lstrip('-')
-            mapping = {"CR": "Crunchyroll", "NF": "Netflix", "AMZN": "Amazon", "ATVP": "AppleTV+", "DSNP": "Disney+", "iT": "iTunes"}
+            mapping = {"CR": "Crunchyroll", "NF": "Netflix", "AMZN": "Amazon", "ATVP": "AppleTV+", "DSNP": "Disney+", "iT": "iTunes", "LINETV": "LINE TV"}
             upper_raw = raw.upper()
             final_val = mapping.get(upper_raw, "iTunes" if raw == "iT" else ("Amazon" if upper_raw == "CRAMZN" else raw))
             log_msg = f"[规则][内置] 发布平台: {raw}"
