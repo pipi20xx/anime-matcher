@@ -28,7 +28,7 @@ class PostProcessor:
         meta_obj.end_episode = None
 
         # [Strategy] 优先触发特权提取器 (针对特定字幕组的硬规则)
-        spec_ep, spec_logs = SpecialEpisodeHandler.extract(input_name)
+        spec_ep, spec_raw, spec_logs = SpecialEpisodeHandler.extract(input_name)
         if spec_ep is not None:
             meta_obj.begin_episode = spec_ep
             v_logs.extend(spec_logs)

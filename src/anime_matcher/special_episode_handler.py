@@ -27,11 +27,11 @@ class SpecialEpisodeHandler:
     ]
 
     @staticmethod
-    def extract(filename: str) -> Tuple[Optional[int], List[str]]:
+    def extract(filename: str) -> Tuple[Optional[int], Optional[str], List[str]]:
         """
         尝试使用特权规则提取集数
         :param filename: 原始文件名
-        :return: (集数, 日志列表)
+        :return: (集数, 集数原文, 日志列表)
         """
         logs = []
         for pattern, group_idx, desc in SpecialEpisodeHandler.RULES:
@@ -40,8 +40,8 @@ class SpecialEpisodeHandler:
                 try:
                     val_str = match.group(group_idx)
                     val = int(val_str)
-                    logs.append(f"[规则][特权] {desc}命中: {match.group(0)} -> E{val}")
-                    return val, logs
+                    logs.append(f"[规则][特权] {desc}命中: {val_str} (来自 {match.group(0)[:30]}...)")
+                    return val, val_str, logs
                 except (ValueError, IndexError):
                     continue
-        return None, []
+        return None, None, []

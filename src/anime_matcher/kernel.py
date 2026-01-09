@@ -55,7 +55,33 @@ def core_recognize(
         if "s" in forced: meta_obj.begin_season = int(forced["s"])
         if "e" in forced: meta_obj.begin_episode = int(forced["e"])
 
-    # --- STEP 2: 独立挖掘 ---
+    # --- [NEW] STEP 1.5: 特权集数探测与屏蔽 ---
+    from .special_episode_handler import SpecialEpisodeHandler
+    sp_ep, sp_raw, sp_logs = SpecialEpisodeHandler.extract(input_name)
+    if sp_ep is not None:
+        meta_obj.begin_episode = sp_ep
+        current_logs.append(f"┃")
+        # 更加精准的屏蔽：只屏蔽提取到的集数原文数字
+        if sp_raw:
+            # 在清洗后的标题中尝试寻找这个数字
+            # 增加边界判定，防止误伤剧名中的数字
+            pattern = rf"(?<!\d){re.escape(sp_raw)}(?!\d)"
+            if re.search(pattern, processed_title):
+                processed_title = re.sub(pattern, " ", processed_title, count=1)
+                sp_logs.append(f"┣ [Shield] 特权集数已从标题中剥离: {sp_raw}")
+            else:
+                # 备选：尝试去掉前导零匹配 (如 02 -> 2)
+                sp_raw_alt = str(int(sp_raw))
+                pattern_alt = rf"(?<!\d){re.escape(sp_raw_alt)}(?!\d)"
+                if sp_raw_alt != sp_raw and re.search(pattern_alt, processed_title):
+                    processed_title = re.sub(pattern_alt, " ", processed_title, count=1)
+                    sp_logs.append(f"┣ [Shield] 特权集数已从标题中剥离 (格式转换): {sp_raw_alt}")
+        
+        # [NEW] 输出屏蔽后的结果
+        sp_logs.append(f"清洗后结果: {processed_title}")
+        logger_stub.debug_out("STEP 1.5: 特权集数探测与屏蔽", sp_logs)
+
+    # --- STEP 2: 元数据独立探测 ---
     current_logs.append(f"┃")
     meta_obj.year, debug2_y = TagExtractor.extract_year(processed_title)
     
@@ -201,14 +227,27 @@ def core_recognize(
     
     # 强力噪音屏蔽 (包含容器后缀, 完结标志, 压制术语 and NOISE_WORDS)
     noise_shield = [
-        r"(?i)\b(MKV|MP4|AVI|FLV|WMV|MOV|7z|ZIP|TS|7zip)\b",
-        r"(?i)\b(Fin|END|Complete|Final)\b",
-        r"(?i)(完结|全集|合集)",
-        r"(?i)(精校|修正|修复|重制|修正版|无修正|未删减)",
-        *NOISE_WORDS
+        (r"(?i)\b(MKV|MP4|AVI|FLV|WMV|MOV|7z|ZIP|TS|7zip)\b", "文件容器"),
+        (r"(?i)\b(Fin|END|Complete|Final)\b", "完结标志"),
+        (r"(?i)(完结|全集|合集)", "合集标志"),
+        (r"(?i)(精校|修正|修复|重制|修正版|无修正|未删减)", "修正标签"),
+        (r"(?<![\u4e00-\u9fa5])(字幕|样式|特效|版本|中字)(?![\u4e00-\u9fa5])", "残余碎片"),
     ]
-    for np in noise_shield:
-        try: processed_title = re.sub(np, " ", processed_title)
+    
+    for np, label in noise_shield:
+        try:
+            match = re.search(np, processed_title)
+            if match:
+                s_logs.append(f"┣ [Shield] 清除{label}: {match.group(0)}")
+                processed_title = re.sub(np, " ", processed_title)
+        except: continue
+    
+    for nw in NOISE_WORDS:
+        try:
+            match = re.search(nw, processed_title, flags=re.I)
+            if match:
+                s_logs.append(f"┣ [Shield] 清除干扰词: {match.group(0)}")
+                processed_title = re.sub(nw, " ", processed_title, flags=re.I)
         except: continue
     
     # [Optimize] 递归清理：合并空格并处理由于剥离产生的孤儿括号
@@ -231,14 +270,16 @@ def core_recognize(
     
     if sub_val: meta_obj.subtitle_lang = sub_val
     s_logs.extend(sub_logs)
+    
+    # [NEW] 输出 STEP 2.5 屏蔽后的最终结果
+    s_logs.append(f"清洗后结果: {processed_title}")
+    
     if s_logs: logger_stub.debug_out("STEP 2.5: 规格预处理与噪声屏蔽", s_logs)
-    # [Debug] 输出最终脱敏结果，方便调试
-    # current_logs.append(f"┣ [Shield] 屏蔽后残留待解析标题: {processed_title}")
 
     # --- STEP 3: 内核解析 ---
     current_logs.append(f"┃")
     safe_title = str(processed_title).strip()
-    current_logs.append(f"┃ [DEBUG][STEP 3]: 调用 Anitopy 语义内核 (脱敏标题: {safe_title})")
+    current_logs.append(f"┃ [DEBUG][STEP 3]: 调用 Anitopy 语义内核")
     info_dict = {}
     try:
         if safe_title: info_dict = AnitopyWrapper.parse(processed_title) or {}
