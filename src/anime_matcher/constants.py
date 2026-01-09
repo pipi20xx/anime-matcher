@@ -18,7 +18,7 @@ PLATFORM_RE = r"(?i)(?:-)?(?<![a-zA-Z0-9])(Baha|Bilibili|Netflix|NF|Amazon|AMZN|
 
 # 2.5 字幕标签正则 (用于标题屏蔽)
 # [Optimize] 采用“关键词探测法”：只要括号内包含语言+样式特征，即判定为字幕块并整块切除
-SUBTITLE_RE = r"(?i)[\[\(\{（【][^\]\}）】]*?(?:(?:[简繁日中英]{1,5}(?:内封|内嵌|外挂|双语|多语|样式|字幕))|(?:CHS|CHT|GB|BIG5|JPSC|JP_SC|SRTx|ASSx))[^\]\}）】]*?[\]\)\}）】]"
+SUBTITLE_RE = r"(?i)[\[\(\{（【][^\]\}）】]*?(?:(?:[简繁日中英体文语語]{1,10}(?:内封|内嵌|外挂|双语|多语|样式|字幕))|(?:CHS|CHT|GB|BIG5|JPSC|JP_SC|SRTx|ASSx))[^\]\}）】]*?[\]\)\}）】]"
 
 # 2.6 别名与检索词屏蔽正则
 ALIAS_RE = r"(?i)[\[\(\{（【]\s*(?:检索用|检索|檢索|别名|別名|又名|附带|附帶|翻译|翻译自)[:：\s]+.*?[\]\)\}）】]"
@@ -32,7 +32,8 @@ NOISE_WORDS = [
     r"(?i)UNCUT|UNRATE|WITH EXTRAS|RERIP|SUBBED|PROPER|REPACK|Complete|Extended|Version|10bit",
     r"CD[ ]*[1-9]|DVD[ ]*[1-9]|DISK[ ]*[1-9]|DISC[ ]*[1-9]|[ ]+GB",
     r"(?i)YYeTs|人人影视|弯弯字幕组",
-    r"(?i)\b[简繁中日英双雙多]+[体文语語]+[ ]*(MP4|MKV|AVC|HEVC|AAC|ASS|SRT)*\b",
+    r"(?i)[简繁中日英双雙多]+[体文语語]+[ ]*(MP4|MKV|AVC|HEVC|AAC|ASS|SRT)*",
+    r"(?:繁体|繁體|简体|简体|简日|繁日|简中|繁中|简繁|双语|双语|内嵌|內嵌|内封|內封|外挂|外掛)"
 ]
 
 # 4. 发布组排除词
