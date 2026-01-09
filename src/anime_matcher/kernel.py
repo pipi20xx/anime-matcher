@@ -162,10 +162,15 @@ def core_recognize(
                          processed_title = re.sub(r"^\[[^\]]+\]|^【[^】]+】", "", processed_title, count=1).strip()
                          s_logs.append(f"┣ [Shield] 提前屏蔽首部制作组: {team}")
                          break
+                     else:
+                         # [Crucial Fix] 如果既不是噪声，也不是制作组，那它很可能是剧名！
+                         # 停止跳过，保留该块及后续所有内容
+                         break
             
+            # 只有明确判定为噪声词，或者为空、纯数字时，才执行跳过
             raw_bracket = first_bracket.group(0)
             processed_title = processed_title[len(raw_bracket):].strip()
-            s_logs.append(f"┣ [Shield] 忽略首部无效/噪声块并继续探测: {raw_bracket}")
+            s_logs.append(f"┣ [Shield] 自动剔除首部噪声块: {raw_bracket}")
 
     # 提取并抹除技术规格
     shield_patterns = [

@@ -43,7 +43,7 @@ NOISE_WORDS = [
 NOT_GROUPS = "1080P|720P|4K|2160P|H264|H265|X264|X265|AVC|HEVC|AAC|DTS|AC3|DDP|ATMOS|WEB-DL|WEBRIP|BLURAY|BD|HD|HDR|SDR|DV|TRUEHD|HIRES|10BIT|EAC3|UHD 4K|Ma10p|Hi10p|Hi10|Ma10|(?i)REMUX"
 
 # 4.5 发布组语义特征词 (用于提高首部制作组识别的置信度)
-GROUP_KEYWORDS = r"组|組|社|制作|製作|字幕|工作|家族|学园|學園|压制|壓制|发布|發佈|协会|協會|联盟|聯盟|论坛|論壇|中心"
+GROUP_KEYWORDS = r"组|組|社|制作|製作|字幕|工作|家族|学园|學園|压制|壓制|发布|發佈|协会|協會|联盟|聯盟|论坛|論壇|中心|屋|团|團|亭|园|園"
 
 # 5. 季集匹配
 EPISODE_PATTERNS = [
