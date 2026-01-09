@@ -184,7 +184,11 @@ class TagExtractor:
         match = re.search(PLATFORM_RE, filename)
         if match:
             raw = match.group(0).lstrip('-')
-            mapping = {"CR": "Crunchyroll", "NF": "Netflix", "AMZN": "Amazon", "ATVP": "AppleTV+", "DSNP": "Disney+", "iT": "iTunes", "LINETV": "LINE TV", "ABEMA": "AbemaTV"}
+            mapping = {
+                "CR": "Crunchyroll", "NF": "Netflix", "AMZN": "Amazon", 
+                "ATVP": "AppleTV+", "DSNP": "Disney+", "iT": "iTunes", 
+                "LINETV": "LINE TV", "ABEMA": "AbemaTV", "IQ": "iQIYI", "IQIYI": "iQIYI"
+            }
             upper_raw = raw.upper()
             final_val = mapping.get(upper_raw, "iTunes" if raw == "iT" else ("Amazon" if upper_raw == "CRAMZN" else raw))
             log_msg = f"[规则][内置] 发布平台: {raw}"
