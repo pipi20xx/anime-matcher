@@ -97,22 +97,15 @@ def core_recognize(
                 # [Strategy] 发现锚点后进行智能扩张，以捕获联合发布块 (GroupA & GroupB)
                 start, end = match.start(), match.end()
                 l_pos, r_pos = start, end
-                
-                # 向上扩张：直到遇到硬定界符或非连接性质的空格
-                # 连接符判定：&, +, x 以及它们周围的空格
                 while l_pos > 0:
                     prev = processed_title[l_pos-1]
                     if prev in "★☆[]【】(){}": break
                     if prev == " ":
-                        # 允许跨越连接符周围的空格
                         if l_pos > 1 and processed_title[l_pos-2] in "&+x":
                             l_pos -= 1; continue
                         else: break
-                    if prev in "&+x": # 命中连接符，继续向左
-                        l_pos -= 1; continue
+                    if prev in "&+x": l_pos -= 1; continue
                     l_pos -= 1
-                
-                # 向下扩张
                 while r_pos < len(processed_title):
                     nxt = processed_title[r_pos]
                     if nxt in "★☆[]【】(){}": break
@@ -120,18 +113,34 @@ def core_recognize(
                         if r_pos < len(processed_title)-1 and nxt in "&+x":
                             r_pos += 1; continue
                         else: break
-                    if nxt in "&+x":
-                        r_pos += 1; continue
+                    if nxt in "&+x": r_pos += 1; continue
                     r_pos += 1
                 
                 full_block = processed_title[l_pos:r_pos].strip(" &+x")
                 meta_obj.resource_team = full_block
                 s_logs.append(f"┣ [Shield] 全局匹配命中制作组(含联合扩张): {full_block}")
-                
-                # 执行精准切除
                 processed_title = (processed_title[:l_pos] + " " + processed_title[r_pos:]).strip()
                 processed_title = re.sub(r"\s+", " ", processed_title)
                 break
+
+    # [New] 非括号首部制作组检测 (支持 Group★Title 或 Group Title 这种风格)
+    if not meta_obj.resource_team:
+        # 提取第一个空格或特殊装饰符之前的块
+        # 由于星号已经在 pre_clean 被换成了空格，这里匹配首个空格前的文本
+        first_block_match = re.search(r"^([^\s★☆\[【]+)", processed_title)
+        if first_block_match:
+            candidate = first_block_match.group(1).strip()
+            from .constants import GROUP_KEYWORDS
+            # 语义校验：块内必须包含制作组特征词 (如 字幕组, 制作, 社)
+            if re.search(GROUP_KEYWORDS, candidate):
+                # 排除明显的剧名特征 (如 [第01话])
+                if not re.search(r"第?\d+[集话話回季]|[上下]卷", candidate):
+                    meta_obj.resource_team = candidate
+                    s_logs.append(f"┣ [Shield] 探测到首部特征制作组: {candidate}")
+                    # 从标题中切除该块
+                    processed_title = processed_title[first_block_match.end():].strip()
+                    # 清理可能残留在开头的空格或星号碎屑
+                    processed_title = re.sub(r"^[★☆■□◆◇●○•\s\-_/]+", "", processed_title).strip()
 
     # 预清洗：剥离掉开头的纯噪声中括号块
     for _ in range(2):
@@ -146,14 +155,12 @@ def core_recognize(
         for _ in range(3):
             first_bracket = re.match(r"^\[([^\]]+)\]|^【([^】]+)】", processed_title)
             if not first_bracket: break
-            
             candidate = first_bracket.group(1) or first_bracket.group(2)
             if candidate.strip() and not candidate.isdigit() and not re.search(PIX_RE, candidate):
                  is_noise = False
                  for nw in NOISE_WORDS:
                      if re.search(nw, candidate, flags=re.I):
                          is_noise = True; break
-                 
                  if not is_noise:
                      team, t_logs = TagExtractor.extract_release_group(processed_title)
                      if team:
@@ -162,12 +169,7 @@ def core_recognize(
                          processed_title = re.sub(r"^\[[^\]]+\]|^【[^】]+】", "", processed_title, count=1).strip()
                          s_logs.append(f"┣ [Shield] 提前屏蔽首部制作组: {team}")
                          break
-                     else:
-                         # [Crucial Fix] 如果既不是噪声，也不是制作组，那它很可能是剧名！
-                         # 停止跳过，保留该块及后续所有内容
-                         break
-            
-            # 只有明确判定为噪声词，或者为空、纯数字时，才执行跳过
+                     else: break
             raw_bracket = first_bracket.group(0)
             processed_title = processed_title[len(raw_bracket):].strip()
             s_logs.append(f"┣ [Shield] 自动剔除首部噪声块: {raw_bracket}")
@@ -181,7 +183,6 @@ def core_recognize(
         (DYNAMIC_RANGE_RE, TagExtractor.extract_dynamic_range, "video_effect"),
         (PLATFORM_RE, TagExtractor.extract_platform, "resource_platform"),
     ]
-
     for pattern, extractor_func, attr_name in shield_patterns:
         matches = list(re.finditer(pattern, processed_title))
         if matches:
@@ -190,11 +191,9 @@ def core_recognize(
                 if val and attr_name:
                     setattr(meta_obj, attr_name, val)
                     s_logs.extend(logs)
-            for m in matches:
-                processed_title = processed_title.replace(m.group(0), " ")
+            for m in matches: processed_title = processed_title.replace(m.group(0), " ")
             processed_title = re.sub(r"\s+", " ", processed_title)
     
-    # 强力噪声屏蔽
     noise_shield = [
         r"(?i)\b(MKV|MP4|AVI|FLV|WMV|MOV|7z|ZIP|TS|7zip)\b",
         r"(?i)\b(Fin|END|Complete|Final)\b",
@@ -205,7 +204,6 @@ def core_recognize(
     for np in noise_shield:
         try: processed_title = re.sub(np, " ", processed_title)
         except: continue
-    
     processed_title = re.sub(r"\s+", " ", processed_title)
     shell_pattern = r"[\[\(\{【][\s\-\._/]*[\]\)\}】]"
     for _ in range(2): 
@@ -216,7 +214,6 @@ def core_recognize(
     sub_val, sub_logs = TagExtractor.extract_subtitle_lang(input_name)
     if sub_val: meta_obj.subtitle_lang = sub_val
     s_logs.extend(sub_logs)
-
     if s_logs: logger_stub.debug_out("STEP 2.5: 规格预处理与噪声屏蔽", s_logs)
 
     # --- STEP 3: 内核解析 ---
@@ -229,7 +226,6 @@ def core_recognize(
         else:
             current_logs.append(f"┣ ⚠️ 标题经预处理后为空，跳过内核解析")
             info_dict = {}
-        
         ignore_keys = ["file_name", "file_extension", "file_type"]
         found_any = False
         for k, v in info_dict.items():
