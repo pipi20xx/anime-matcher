@@ -1,6 +1,6 @@
 import regex as re
 import cn2an
-from typing import Optional, Any, List, Tuple
+from typing import Optional, Any, List, Tuple, Union
 from .constants import SEASON_PATTERNS, EPISODE_PATTERNS, CN_MAP, NOT_GROUPS, VIDEO_RE, PIX_RE, PLATFORM_RE, DYNAMIC_RANGE_RE, AUDIO_RE, SOURCE_RE
 
 class TagExtractor:
@@ -91,14 +91,25 @@ class TagExtractor:
         return None, []
 
     @staticmethod
-    def validate_episode(ep_val: Any, filename: str) -> Tuple[Optional[int], List[str]]:
+    def validate_episode(ep_val: Any, filename: str) -> Tuple[Optional[Union[int, float]], List[str]]:
         if ep_val is None: return None, []
         try:
             val_str = str(ep_val[0] if isinstance(ep_val, list) else ep_val)
+            # 处理浮点集数 (如 24.5)
+            if "." in val_str:
+                num_val = float(val_str)
+                # 如果是整数浮点 (如 24.0)，转回 int
+                if num_val.is_integer():
+                    num_val = int(num_val)
+            else:
+                num_val = int(val_str)
+
+            # 误报拦截：如果是像 H.264 这种被误认为集数的情况
             if re.search(rf"(?i)[Hx]\.?{val_str}\b", filename) or re.search(rf"(?i)\b{val_str}[Pp]\b", filename):
                 if not re.search(rf"(?i)(EP|第|E|episode|#)\s*0*{val_str}", filename):
                     return None, [f"[规则][内置] 集数误报拦截: {val_str}"]
-            return int(val_str), [f"[规则][内置] 集数校验通过: E{val_str}"]
+            
+            return num_val, [f"[规则][内置] 集数校验通过: E{num_val}"]
         except: return None, []
 
     @staticmethod
@@ -173,7 +184,7 @@ class TagExtractor:
         match = re.search(PLATFORM_RE, filename)
         if match:
             raw = match.group(0).lstrip('-')
-            mapping = {"CR": "Crunchyroll", "NF": "Netflix", "AMZN": "Amazon", "ATVP": "AppleTV+", "DSNP": "Disney+", "iT": "iTunes", "LINETV": "LINE TV"}
+            mapping = {"CR": "Crunchyroll", "NF": "Netflix", "AMZN": "Amazon", "ATVP": "AppleTV+", "DSNP": "Disney+", "iT": "iTunes", "LINETV": "LINE TV", "ABEMA": "AbemaTV"}
             upper_raw = raw.upper()
             final_val = mapping.get(upper_raw, "iTunes" if raw == "iT" else ("Amazon" if upper_raw == "CRAMZN" else raw))
             log_msg = f"[规则][内置] 发布平台: {raw}"

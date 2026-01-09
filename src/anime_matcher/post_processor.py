@@ -149,44 +149,57 @@ class PostProcessor:
                 # 再次清理空格
                 raw_name = re.sub(r"\s+", " ", raw_name).strip()
 
-            # [Fix] 扩充无效标题黑名单，防止 Anitopy 将 'MP4', '1080P' 等误判为标题
-            invalid_keywords = ["MOVIE", "OVA", "TV", "BD", "MP4", "MKV", "AVI", "BIG5", "GB", "CHS", "CHT", "JAP", "ENG", "BIG5_MP4", "GB_MP4", "WEB-DL"]
+            # [Fix] 扩充无效标题黑名单
+            invalid_keywords = ["MOVIE", "OVA", "ONA", "TV", "BD", "DVD", "SP", "SPECIAL", "MP4", "MKV", "BIG5", "GB", "CHS", "CHT", "JAP", "ENG"]
             is_tech_garbage = raw_name.upper() in invalid_keywords or re.match(r"^\d{3,4}[pPXx]?$", raw_name)
             
             # [NEW] 额外检测：如果标题包含 "3rd", "2nd" 这种可能的集数别名，也视为可疑标题
             is_suspicious = re.match(r"^\d+(st|nd|rd|th)$", raw_name, re.I)
+            
+            # [Strategy] 判定内核识别的组名是否可信
+            is_group_credible = False
+            detected_group = info_dict.get("release_group")
+            if detected_group:
+                from .constants import GROUP_KEYWORDS
+                # 检查是否命中自定义库
+                if custom_groups:
+                    for g in custom_groups:
+                        g_cl = re.sub(r"^\[(?:REMOTE|私有|社区|内置)\]", "", g).strip()
+                        if g_cl and g_cl.lower() in str(detected_group).lower():
+                            is_group_credible = True; break
+                # 检查是否包含组名特征词
+                if not is_group_credible and re.search(GROUP_KEYWORDS, str(detected_group)):
+                    is_group_credible = True
 
             if is_invalid_title or is_tech_garbage or is_suspicious:
                 current_logs.append(f"┣ [警告] 内核提取标题 '{raw_name}' 判定为不可信，启动深度回捞")
                 brackets = re.findall(r'[\[【](.+?)[\]】]', processed_title)
                 potential_titles = []
-                detected_group = info_dict.get("release_group")
                 
                 for b in brackets:
                     b_strip = b.strip()
                     if len(b_strip) < 2: continue 
                     
-                    # 1. 排除明显的技术词
-                    if re.search(r"\d{3,4}p|H26|AVC|AAC|CHS|CHT|MP4|MKV|新番", b_strip, re.I): continue
+                    # 1. 排除明显的技术词和类型词
+                    if re.search(r"\d{3,4}p|H26|AVC|AAC|CHS|CHT|MP4|MKV|新番|BD|DVD", b_strip, re.I): continue
+                    if b_strip.upper() in ["OVA", "ONA", "SP", "SPECIAL", "MOVIE"]: continue
                     if b_strip.isdigit(): continue
 
-                    # [Fix] 排除集数范围模式 (e.g. 第01-12话, 01-13, Vol.1)
-                    # 避免把 [01-12] 这种纯集数段误判为标题
+                    # [Fix] 排除集数范围模式
                     if re.match(r"^(?:第|Vol\.?)?\s*\d+(?:[-\s~]+\d+)?(?:话|集|話)?$", b_strip, re.I):
-                        current_logs.append(f"┣ [过滤] 排除疑似集数段: {b_strip}")
                         continue
                     
-                    # 2. 排除内核已识别的组名
-                    if detected_group and b_strip == detected_group: continue
+                    # 2. 除非组名高度可信，否则不排除它作为标题的可能性
+                    if is_group_credible and detected_group and b_strip == detected_group: continue
                     
-                    # 3. 排除自定义组名库中的组名 (恢复此逻辑)
-                    is_group = False
+                    # 3. 排除自定义组名库中的组名
+                    is_custom_group = False
                     if custom_groups:
                         for g in custom_groups:
-                            if not g or len(g.strip()) < 2: continue
-                            if g.lower() in b_strip.lower():
-                                is_group = True; break
-                    if is_group: continue
+                            g_cl = re.sub(r"^\[(?:REMOTE|私有|社区|内置)\]", "", g).strip()
+                            if g_cl and g_cl.lower() in b_strip.lower():
+                                is_custom_group = True; break
+                    if is_custom_group: continue
                     
                     # 4. 检查是否包含中文 (剧名特征优先)
                     if re.search(r"[\u4e00-\u9fa5]", b_strip):
@@ -342,11 +355,11 @@ class PostProcessor:
         if meta_obj.forced_tmdbid: pass
         else:
             # [Fix] 如果集数是一个年份 (如 2019)，则判定为 Movie，并清空集数
-            if meta_obj.begin_episode and meta_obj.begin_episode > 1900:
+            if meta_obj.begin_episode and isinstance(meta_obj.begin_episode, (int, float)) and meta_obj.begin_episode > 1900:
                 current_logs.append(f"┣ [Fix] 集数 E{meta_obj.begin_episode} 判定为年份，修正为 Movie 模式")
                 meta_obj.begin_episode = None
                 meta_obj.type = MediaType.MOVIE
-            elif meta_obj.begin_season or meta_obj.begin_episode:
+            elif meta_obj.begin_season is not None or meta_obj.begin_episode is not None:
                 meta_obj.type = MediaType.TV
                 if meta_obj.begin_season is None: meta_obj.begin_season = 1
             else: 

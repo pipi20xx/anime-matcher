@@ -175,6 +175,7 @@ def core_recognize(
             s_logs.append(f"┣ [Shield] 自动剔除首部噪声块: {raw_bracket}")
 
     # 提取并抹除技术规格
+    from .constants import SUBTITLE_RE
     shield_patterns = [
         (PIX_RE, TagExtractor.extract_resolution, "resource_pix"),
         (VIDEO_RE, TagExtractor.extract_video_encode, "video_encode"),
@@ -182,6 +183,7 @@ def core_recognize(
         (SOURCE_RE, TagExtractor.extract_source, "resource_type"),
         (DYNAMIC_RANGE_RE, TagExtractor.extract_dynamic_range, "video_effect"),
         (PLATFORM_RE, TagExtractor.extract_platform, "resource_platform"),
+        (SUBTITLE_RE, None, None), # 字幕标签仅执行屏蔽，提取已在后面独立完成
     ]
     for pattern, extractor_func, attr_name in shield_patterns:
         matches = list(re.finditer(pattern, processed_title))

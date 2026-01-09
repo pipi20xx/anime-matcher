@@ -16,10 +16,12 @@ DYNAMIC_RANGE_RE = r"(?i)(?<![a-zA-Z0-9])(HDR10\+|HDR10|HDR|HLG|Dolby\s*Vision|D
 # 剩余的作为版本/其他特效标签
 EFFECT_RE = r"(?i)(?<![a-zA-Z0-9])(3D|REPACK|HQ|Remastered|Extended|Uncut|Internal|Pro|Proper)(?![a-zA-Z0-9])"
 
-# 2. 流媒体平台 (Streaming Platforms) - 新增
-# 包含用户指定的: Disney+, playWEB, Baha, B-Global, CrunchRoll, friDay, LINETV, KKTV, ATVP, DSNP, NF, IQ, CRAMZN, Netflix, Amazon, AppleTV+, iT
-# 修改: 允许可选的连字符前缀 (?:-)? 以兼容用户自定义的 "-Baha" 格式
-PLATFORM_RE = r"(?i)(?:-)?(?<![a-zA-Z0-9])(Baha|Bilibili|Netflix|NF|Amazon|AMZN|DSNP|Crunchyroll|CR|Hulu|HBO|YouTube|YT|playWEB|B-Global|friDay|LINETV|KKTV|ATVP|IQ|CRAMZN|iT)(?![a-zA-Z0-9])|(?:-)?(?<![a-zA-Z0-9])(Disney\+|AppleTV\+)"
+# 2. 流媒体平台
+PLATFORM_RE = r"(?i)(?:-)?(?<![a-zA-Z0-9])(Baha|Bilibili|Netflix|NF|Amazon|AMZN|DSNP|Crunchyroll|CR|Hulu|HBO|YouTube|YT|playWEB|B-Global|friDay|LINETV|KKTV|ATVP|IQ|CRAMZN|iT|ABEMA)(?![a-zA-Z0-9])|(?:-)?(?<![a-zA-Z0-9])(Disney\+|AppleTV\+)"
+
+# 2.5 字幕标签正则 (用于标题屏蔽)
+# [Optimize] 增加对空格和碎屑的容错，确保能切除 [简日 字幕] 或 [CHS_CHT]
+SUBTITLE_RE = r"(?i)(?<![\u4e00-\u9fa5])([简繁中日英双雙多]{1,}[体文语語\s]*[内內外\s]*[嵌封挂掛\s]*字幕?|[简繁中日英双雙多]{1,}[体文语語\s]*[双雙]语|[简繁中日英双雙多]{1,}\s*字幕|CHS|CHT|JPSC|JP_SC|BIG5|GB)(?![\u4e00-\u9fa5])"
 
 # 3. 深度噪音
 NOISE_WORDS = [
@@ -29,13 +31,9 @@ NOISE_WORDS = [
     r"连载|新番|合集|招募翻译|版本|出品|台版|港版|搬运|搬運|[a-zA-Z0-9]+字幕组|[a-zA-Z0-9]+字幕社|[★☆]*[0-9]{1,2}月新番[★☆]*",
     r"(?i)UNCUT|UNRATE|WITH EXTRAS|RERIP|SUBBED|PROPER|REPACK|Complete|Extended|Version|10bit",
     r"CD[ ]*[1-9]|DVD[ ]*[1-9]|DISK[ ]*[1-9]|DISC[ ]*[1-9]|[ ]+GB",
-    # [Optimize] 只有当出现明确的语言+类型组合时才视为噪声块，防止误杀如“六四位元字幕组”中的“字幕”
-    r"[多中英葡法俄日韩德意西印泰台港粤双文语简繁體体特效]{2,}[内內封官译外挂]{1,2}字幕?",
-    r"(?i)YYeTs|人人影视|弯弯字幕组|Big5|GB|Dual-Audio|简体|繁体|繁體|双语|雙語|简中|繁中|日文|日语|英文|内嵌|內嵌|内封|內封|特效|无修|外挂|外掛",
-    r"(?i)(?<![a-zA-Z0-9])(CHS|CHT|JAP|ENG|SUB)(?![a-zA-Z0-9])",
-    r"(?i)(?<![a-zA-Z0-9])(PGS|ASS|SSA|SRT|VobSub)(?![a-zA-Z0-9])",
-    r"(?i)(?<![a-zA-Z0-9])(CHS|CHT|JP|JPN|BIG5|GB|ENG|SC|TC)(_|-|&)*(CHS|CHT|JP|JPN|BIG5|GB|ENG|SC|TC)*(?![a-zA-Z0-9])",
-    # [Optimize] 约束语言标签：必须包含 体/文/语/字 等明确后缀，或者紧跟技术格式，防止误伤剧名中的“中/日”
+    # [Optimize] 只保留固定的发布组/翻译组碎屑噪声
+    r"(?i)YYeTs|人人影视|弯弯字幕组",
+    # [Optimize] 约束语言标签：必须包含 体/文/语/字 等明确后缀
     r"(?i)\b[简繁中日英双雙多]+[体文语語]+[ ]*(MP4|MKV|AVC|HEVC|AAC|ASS|SRT)*\b",
 ]
 
