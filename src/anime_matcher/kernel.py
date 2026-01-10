@@ -123,23 +123,59 @@ def core_recognize(
                 # [Strategy] 发现锚点后进行智能扩张，以捕获联合发布块 (GroupA & GroupB)
                 start, end = match.start(), match.end()
                 l_pos, r_pos = start, end
+                
+                # 定义扩张阻断正则 (去除边界符以适配 fullmatch)
+                def _c(r): return r.replace(r"(?<![a-zA-Z0-9])", "").replace(r"(?![a-zA-Z0-9])", "").replace(r"\b", "")
+                STOP_PATTERN = rf"(?i)^({_c(PIX_RE)}|{_c(VIDEO_RE)}|{_c(AUDIO_RE)}|{_c(SOURCE_RE)}|{_c(DYNAMIC_RANGE_RE)}|{_c(PLATFORM_RE)}|S\d+|E\d+|EP\d+|\d{{4}}|MKV|MP4|AVI|TS|7Z|ZIP)$"
+
+                # 向左扩张
                 while l_pos > 0:
                     prev = processed_title[l_pos-1]
                     if prev in "★☆[]【】(){}": break
-                    if prev == " ":
-                        if l_pos > 1 and processed_title[l_pos-2] in "&+x":
-                            l_pos -= 1; continue
-                        else: break
-                    if prev in "&+x": l_pos -= 1; continue
+                    
+                    if prev in " ._-/":
+                        # 检查分隔符左侧的一个单词
+                        left_text = processed_title[:l_pos-1]
+                        word_match = re.search(r'([^.\s\-_/]+)$', left_text)
+                        if word_match:
+                            word = word_match.group(1)
+                            # 如果左侧词是核心元数据，停止扩张
+                            if re.fullmatch(STOP_PATTERN, word): break
+                            # 如果左侧词不是 '&' 且分隔符不是空格，通常也应停止
+                            if prev != " " and word != "&":
+                                break
+                        
+                        if prev == " ":
+                            # 空格只有在 '&' 存在时才继续
+                            if l_pos > 1 and processed_title[l_pos-2] == "&":
+                                l_pos -= 1; continue
+                            else: break
+                    
+                    if prev == "&": l_pos -= 1; continue
                     l_pos -= 1
+                
+                # 向右扩张
                 while r_pos < len(processed_title):
                     nxt = processed_title[r_pos]
                     if nxt in "★☆[]【】(){}": break
-                    if nxt == " ":
-                        if r_pos < len(processed_title)-1 and nxt in "&+x":
-                            r_pos += 1; continue
-                        else: break
-                    if nxt in "&+x": r_pos += 1; continue
+                    
+                    if nxt in " ._-/":
+                        # 检查分隔符右侧的一个单词
+                        right_text = processed_title[r_pos+1:]
+                        word_match = re.match(r'([^.\s\-_/]+)', right_text)
+                        if word_match:
+                            word = word_match.group(1)
+                            if re.fullmatch(STOP_PATTERN, word): break
+                            # 向右扩张支持 '&' 和 '@' (站点标记)
+                            if nxt != " " and word not in ["&", "@"]:
+                                break
+
+                        if nxt == " ":
+                             if r_pos < len(processed_title)-1 and processed_title[r_pos+1] == "&":
+                                 r_pos += 1; continue
+                             else: break
+
+                    if nxt in ["&", "@"]: r_pos += 1; continue
                     r_pos += 1
                 
                 full_block = processed_title[l_pos:r_pos].strip(" &+x")
