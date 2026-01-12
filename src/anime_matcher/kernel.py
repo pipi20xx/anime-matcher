@@ -129,7 +129,9 @@ def core_recognize(
                 STOP_PATTERN = rf"(?i)^({_c(PIX_RE)}|{_c(VIDEO_RE)}|{_c(AUDIO_RE)}|{_c(SOURCE_RE)}|{_c(DYNAMIC_RANGE_RE)}|{_c(PLATFORM_RE)}|S\d+|E\d+|EP\d+|\d{{4}}|MKV|MP4|AVI|TS|7Z|ZIP)$"
 
                 # 向左扩张
-                while l_pos > 0:
+                safety_count = 0
+                while l_pos > 0 and safety_count < 100:
+                    safety_count += 1
                     prev = processed_title[l_pos-1]
                     if prev in "★☆[]【】(){}": break
                     
@@ -155,7 +157,9 @@ def core_recognize(
                     l_pos -= 1
                 
                 # 向右扩张
-                while r_pos < len(processed_title):
+                safety_count = 0
+                while r_pos < len(processed_title) and safety_count < 100:
+                    safety_count += 1
                     nxt = processed_title[r_pos]
                     if nxt in "★☆[]【】(){}": break
                     
@@ -178,6 +182,7 @@ def core_recognize(
                     if nxt in ["&", "@"]: r_pos += 1; continue
                     r_pos += 1
                 
+                print(f"[DEBUG] Expansion Done. Block: {processed_title[l_pos:r_pos]}", flush=True)
                 full_block = processed_title[l_pos:r_pos].strip(" &+x")
                 meta_obj.resource_team = full_block
                 s_logs.append(f"┣ [Shield] 全局匹配命中制作组(含联合扩张): {full_block}")
@@ -314,6 +319,11 @@ def core_recognize(
 
     # --- STEP 3: 内核解析 ---
     current_logs.append(f"┃")
+    
+    # [Fix] 在进入内核前再次清理末尾的残留符号 (如 - . _) 防止 Anitopy 卡死
+    processed_title = re.sub(r"[\s\-\._]+$", "", processed_title)
+    current_logs.append(f"┣ [DEBUG] 内核前终极清洗: {processed_title}")
+    
     safe_title = str(processed_title).strip()
     current_logs.append(f"┃ [DEBUG][STEP 3]: 调用 Anitopy 语义内核")
     info_dict = {}

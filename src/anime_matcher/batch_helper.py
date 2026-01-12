@@ -51,6 +51,9 @@ class BatchHelper:
             # 中文描述: 第01-13集, 全12话
             r"第(\d{1,3})\s?[-~]\s?(\d{1,3})[集话話期]",
             r"(?:全|共)(\d{1,3})[集话話期]", # 这种情况 Start=1
+
+            # [New] Standard Scene/P2P Batch: S01E09-E10, E01-E12
+            r"(?i)(?:S\d{1,2})?EP?(\d{1,4})\s?[-~]\s?EP?(\d{1,4})",
         ]
 
         for p in patterns:
