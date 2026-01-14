@@ -110,19 +110,18 @@ async def recognize(req: RecognitionRequest):
     # --- [STAGE 0] 任务控制台 (配置审计) ---
     logs.append(f"🚀 --- [ANIME 深度审计流启动] ---")
     
-    storage_status = "ON" if req.use_storage else "OFF"
-    logs.append(f"┃ [配置] 模式状态: 强制单文件[{'ON' if req.force_filename else 'OFF'}] | 合集增强[{'ON' if req.batch_enhancement else 'OFF'}] | 云端联动[{'ON' if req.with_cloud else 'OFF'}] | 智能记忆[{storage_status}]")
+    def on_off(b): return "ON" if b else "OFF"
+    
+    logs.append(f"┃ [配置] 模式状态: 强制单文件[{on_off(req.force_filename)}] | 合集增强[{on_off(req.batch_enhancement)}] | 云端联动[{on_off(req.with_cloud)}] | 智能记忆[{on_off(req.use_storage)}]")
+    logs.append(f"┃ [配置] 策略权重: 动漫优先[{on_off(req.anime_priority)}] | Bangumi 优先[{on_off(req.bangumi_priority)}] | TMDB 故障转移[{on_off(req.bangumi_failover)}]")
     
     # 规则数量统计
     logs.append(f"┃ [配置] 规则载入: 屏蔽词({len(req.custom_words)}) | 制作组({len(req.custom_groups)}) | 专家渲染({len(req.custom_render)})")
     
     # 云端参数摘要 (脱敏处理)
     if req.with_cloud:
-        p_bgm = "Bangumi-First" if req.bangumi_priority else "TMDB-First"
-        p_failover = "Enabled" if req.bangumi_failover else "Disabled"
-        p_anime = "Enabled" if req.anime_priority else "Disabled"
         tmdb_key_mask = f"{req.tmdb_api_key[:4]}***{req.tmdb_api_key[-4:]}" if req.tmdb_api_key and len(req.tmdb_api_key) > 8 else ("Env-Key" if os.environ.get("TMDB_API_KEY") else "Missing")
-        logs.append(f"┃ [配置] 云端策略: 搜索顺序[{p_bgm}] | 故障转移[{p_failover}] | 动漫优化[{p_anime}] | TMDB密钥[{tmdb_key_mask}]")
+        logs.append(f"┃ [配置] 云端凭据: TMDB密钥[{tmdb_key_mask}]")
         if req.tmdb_proxy: logs.append(f"┃ [配置] 网络代理: {req.tmdb_proxy}")
     
     if req.tmdb_id:
