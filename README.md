@@ -27,6 +27,7 @@
       "use_storage": false,
       "anime_priority": true,
       "bangumi_priority": false,
+      "bangumi_failover": true,
   
   "tmdb_api_key": "string",
   "tmdb_proxy": "string",
@@ -49,6 +50,7 @@
 | **use_storage** | `false` | bool | **智能记忆与本地缓存**: 启用后可自动记忆识别历史并缓存元数据 |
 | **anime_priority**| `true` | bool | 联网匹配时开启动画分类加权优化 |
 | **bangumi_priority**| `false` | bool | 优先检索 Bangumi 库并映射至 TMDB |
+| **bangumi_failover**| `true` | bool | **Bangumi 故障转移**: 当 TMDB 检索失败时，自动尝试 Bangumi 检索并映射 |
 | **tmdb_api_key** | `null` | string | TMDB 密钥 (也可通过环境变量配置) |
 | **tmdb_proxy** | `null` | string | 指定 TMDB 网络请求代理 |
 | **tmdb_id** | `null` | string | **已知 ID 提示**: 传入后可直接触发专家规则，跳过云端检索 |

@@ -1,4 +1,4 @@
-import anitopy
+from . import anitopy
 import traceback
 import sys
 from typing import Dict, Any
