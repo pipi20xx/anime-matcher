@@ -26,6 +26,7 @@ class RecognitionRequest(BaseModel):
     use_storage: bool = Field(default=False, description="是否启用本地持久化存储(如果全局开关开启)")
     anime_priority: bool = Field(default=True, description="动画优先级加权")
     bangumi_priority: bool = Field(default=False, description="是否优先从 Bangumi 检索")
+    bangumi_failover: bool = Field(default=True, description="是否在 TMDB 失败时启用 Bangumi 故障转移")
     tmdb_api_key: Optional[str] = Field(default=None, description="TMDB API Key")
     tmdb_proxy: Optional[str] = Field(default=None, description="TMDB 代理地址")
     tmdb_id: Optional[str] = Field(default=None, description="【已知 ID 提示】如果后端已命中心指纹，可直接传入 ID 以触发专家规则")
@@ -118,9 +119,10 @@ async def recognize(req: RecognitionRequest):
     # 云端参数摘要 (脱敏处理)
     if req.with_cloud:
         p_bgm = "Bangumi-First" if req.bangumi_priority else "TMDB-First"
+        p_failover = "Enabled" if req.bangumi_failover else "Disabled"
         p_anime = "Enabled" if req.anime_priority else "Disabled"
         tmdb_key_mask = f"{req.tmdb_api_key[:4]}***{req.tmdb_api_key[-4:]}" if req.tmdb_api_key and len(req.tmdb_api_key) > 8 else ("Env-Key" if os.environ.get("TMDB_API_KEY") else "Missing")
-        logs.append(f"┃ [配置] 云端策略: 搜索顺序[{p_bgm}] | 动漫优化[{p_anime}] | TMDB密钥[{tmdb_key_mask}]")
+        logs.append(f"┃ [配置] 云端策略: 搜索顺序[{p_bgm}] | 故障转移[{p_failover}] | 动漫优化[{p_anime}] | TMDB密钥[{tmdb_key_mask}]")
         if req.tmdb_proxy: logs.append(f"┃ [配置] 网络代理: {req.tmdb_proxy}")
     
     if req.tmdb_id:
@@ -183,13 +185,22 @@ async def recognize(req: RecognitionRequest):
                 if current_tmdb_id:
                     # 如果有 ID，直接通过 ID 获取详情
                     cloud_data = await tmdb_client.get_details(current_tmdb_id, m_type_str, logs)
-                elif req.bangumi_priority:
-                    bgm_subject = await bgm_client.search_subject(l1_dict["cn_name"] or l1_dict["en_name"], logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
-                    if bgm_subject:
-                        cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
-                        if not cloud_data: cloud_data = bgm_subject
                 else:
-                    cloud_data = await tmdb_client.smart_search(l1_dict["cn_name"], l1_dict["en_name"], l1_dict["year"], m_type_str, logs, anime_priority=req.anime_priority)
+                    # 确定搜索策略
+                    if req.bangumi_priority:
+                        search_order = ["bangumi", "tmdb"]
+                    else:
+                        search_order = ["tmdb", "bangumi"] if req.bangumi_failover else ["tmdb"]
+                    
+                    for source in search_order:
+                        if cloud_data: break
+                        if source == "tmdb":
+                            cloud_data = await tmdb_client.smart_search(l1_dict["cn_name"], l1_dict["en_name"], l1_dict["year"], m_type_str, logs, anime_priority=req.anime_priority)
+                        elif source == "bangumi":
+                            bgm_subject = await bgm_client.search_subject(l1_dict["cn_name"] or l1_dict["en_name"], logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
+                            if bgm_subject:
+                                cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
+                                if not cloud_data: cloud_data = bgm_subject
                 
                 # 存入缓存
                 if active_storage and cloud_data:
