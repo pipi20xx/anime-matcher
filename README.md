@@ -22,15 +22,17 @@
   "custom_groups": [],
   "custom_render": [],
   "force_filename": false,
-      "batch_enhancement": false,
-      "with_cloud": false,
-      "use_storage": false,
-      "anime_priority": true,
-      "bangumi_priority": false,
-      "bangumi_failover": true,
+  "batch_enhancement": false,
+  "with_cloud": false,
+  "use_storage": false,
+  "anime_priority": true,
+  "bangumi_priority": false,
+  "bangumi_failover": true,
   
   "tmdb_api_key": "string",
   "tmdb_proxy": "string",
+  "tmdb_id": "string",
+  "tmdb_type": "tv",
   "bangumi_token": "string",
   "bangumi_proxy": "string"
 }
@@ -48,7 +50,7 @@
 | **batch_enhancement** | `false`| bool | 开启合集/批处理增强逻辑 |
 | **with_cloud** | `false` | bool | **云端联动总开关**，开启后执行网络匹配 |
 | **use_storage** | `false` | bool | **智能记忆与本地缓存**: 启用后可自动记忆识别历史并缓存元数据 |
-| **anime_priority**| `true` | bool | 联网匹配时开启动画分类加权优化 |
+| **anime_priority**| `true` | bool | 联网匹配时开开启动画分类加权优化 |
 | **bangumi_priority**| `false` | bool | 优先检索 Bangumi 库并映射至 TMDB |
 | **bangumi_failover**| `true` | bool | **Bangumi 故障转移**: 当 TMDB 检索失败时，自动尝试 Bangumi 检索并映射 |
 | **tmdb_api_key** | `null` | string | TMDB 密钥 (也可通过环境变量配置) |

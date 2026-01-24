@@ -155,6 +155,12 @@ async def recognize(req: RecognitionRequest):
 
         # --- [STAGE 1.5] 查阅持久化记忆 ---
         current_tmdb_id = req.tmdb_id
+        
+        # 优先级：请求参数强制 ID > L1 识别结果中的强制 ID > 本地存储记忆
+        if not current_tmdb_id and meta.forced_tmdbid:
+            current_tmdb_id = meta.forced_tmdbid
+            logs.append(f"┃ [STAGE 1.5] 🚀 发现规则锁定 ID: {current_tmdb_id}")
+
         if active_storage and not current_tmdb_id:
             pattern_key = f"{l1_dict['cn_name'] or l1_dict['en_name']}|{l1_dict['year']}"
             memory = storage.get_memory(pattern_key)
@@ -194,12 +200,26 @@ async def recognize(req: RecognitionRequest):
                     for source in search_order:
                         if cloud_data: break
                         if source == "tmdb":
-                            cloud_data = await tmdb_client.smart_search(l1_dict["cn_name"], l1_dict["en_name"], l1_dict["year"], m_type_str, logs, anime_priority=req.anime_priority)
+                            cloud_data = await tmdb_client.smart_search(
+                                l1_dict["cn_name"], l1_dict["en_name"], l1_dict["year"], m_type_str, logs, 
+                                anime_priority=req.anime_priority,
+                                original_cn_name=meta.original_cn_name
+                            )
                         elif source == "bangumi":
-                            bgm_subject = await bgm_client.search_subject(l1_dict["cn_name"] or l1_dict["en_name"], logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
-                            if bgm_subject:
-                                cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
-                                if not cloud_data: cloud_data = bgm_subject
+                            # 故障转移增强：如果解析出的名字为空，则使用预处理后的标题作为兜底搜索词
+                            queries = [q for q in [l1_dict["en_name"], l1_dict["cn_name"]] if q]
+                            if not queries and meta.processed_name:
+                                queries = [meta.processed_name]
+
+                            for q in queries:
+                                if cloud_data: break
+                                bgm_subject = await bgm_client.search_subject(q, logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
+                                if bgm_subject:
+                                    logs.append(f"┃ [匹配] 🪄 Bangumi 命中，尝试映射...")
+                                    cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
+                                    if not cloud_data: 
+                                        logs.append(f"┃ [匹配] ⚠️ Bangumi 映射 TMDB 失败，回退到原始元数据")
+                                        cloud_data = bgm_subject
                 
                 # 存入缓存
                 if active_storage and cloud_data:
