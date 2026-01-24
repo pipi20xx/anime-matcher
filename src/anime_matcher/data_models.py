@@ -23,3 +23,4 @@ class MetaBase:
     end_episode: Optional[Any] = None
     tags: List[str] = field(default_factory=list)
     processed_name: Optional[str] = None
+    original_cn_name: Optional[str] = None

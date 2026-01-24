@@ -277,10 +277,10 @@ class TitleCleaner:
         return re.sub(r"\s+", " ", final), debug_logs
 
     @staticmethod
-    def extract_dual_title(residual_title: str, split_mode: bool = False) -> Tuple[Optional[str], Optional[str], List[str]]:
+    def extract_dual_title(residual_title: str, split_mode: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str], List[str]]:
         """[DEBUG] 执行中英分离"""
         debug_logs = []
-        if not residual_title: return None, None, debug_logs
+        if not residual_title: return None, None, None, debug_logs
         
         # [Fix] 在大量清理符号前，先尝试探测显式的双语分隔符
         # 常见模式: "中文名 / English Title" 或扁平化后的 "中文名 _ English Title"
@@ -290,18 +290,20 @@ class TitleCleaner:
             parts = residual_title.split(sep, 1)
             p1, p2 = parts[0].strip(), parts[1].strip()
             if len(p1) >= 2 and len(p2) >= 2:
-                cn, en = zhconv.convert(p1, "zh-hans"), p2
-                debug_logs.append(f"[拆分] 发现显式分隔符 '{sep}', 拆分为: {cn} / {en}")
-                return cn, en, debug_logs
+                cn_orig = p1
+                cn_simp = zhconv.convert(p1, "zh-hans")
+                debug_logs.append(f"[拆分] 发现显式分隔符 '{sep}', 拆分为: {cn_simp} / {p2}")
+                return cn_simp, cn_orig, p2, debug_logs
         elif "_" in residual_title:
             # 探测模式：[CJK]_ [Latin]
             match = re.search(r"([\u4e00-\u9fa5\u3040-\u30ff]+)_([a-zA-Z].+)", residual_title)
             if match:
                 p1, p2 = match.group(1).strip(), match.group(2).strip()
                 if len(p1) >= 2 and len(p2) >= 2:
-                    cn, en = zhconv.convert(p1, "zh-hans"), p2
-                    debug_logs.append(f"[拆分] 发现紧凑型下划线分隔符, 拆分为: {cn} / {en}")
-                    return cn, en, debug_logs
+                    cn_orig = p1
+                    cn_simp = zhconv.convert(p1, "zh-hans")
+                    debug_logs.append(f"[拆分] 发现紧凑型下划线分隔符, 拆分为: {cn_simp} / {p2}")
+                    return cn_simp, cn_orig, p2, debug_logs
 
         # [Fix] 扩展符号清理，包含东亚括号 【】
         # [Optimize] 增加对开头残留连接符 (如 &) 的清理
@@ -312,15 +314,18 @@ class TitleCleaner:
         # 兼容旧逻辑：如果还残留 / (虽然上面的 re.sub 已经基本洗掉了，但保留作为兜底)
         if "/" in title:
             parts = title.split("/")
-            cn, en = zhconv.convert(parts[0].strip(), "zh-hans"), parts[1].strip()
-            debug_logs.append(f"[拆分] 发现分隔符 '/', 拆分为: {cn} / {en}")
-            return cn, en, debug_logs
+            p1 = parts[0].strip()
+            cn_orig = p1
+            cn_simp = zhconv.convert(p1, "zh-hans")
+            debug_logs.append(f"[拆分] 发现分隔符 '/', 拆分为: {cn_simp} / {parts[1].strip()}")
+            return cn_simp, cn_orig, parts[1].strip(), debug_logs
 
         # [Fix] 扩展 CJK 范围：增加平假名(\u3040-\u309f)和片假名(\u30a0-\u30ff)
         # 同时也保留常见的 CJK 标点符号(\u3000-\u303f)和全角字符(\uff00-\uffef)
         cjk_pattern = r"[\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff0-9\u3000-\u303f\uff00-\uffef×x]{1,}"
         cn_match = re.findall(cjk_pattern, title)
-        en_match = re.findall(r"[a-zA-Z][a-zA-Z0-9\s']{2,}", title)
+        # [Optimization] 允许英文标题包含更多常见标点 (逗号、冒号、叹号、连接符等)
+        en_match = re.findall(r"[a-zA-Z][a-zA-Z0-9\s',:!&?~;]{2,}", title)
         
         # [Fix] 过滤纯数字/纯标点块: 如果已提取到汉字/日文，则丢弃纯数字或纯符号块
         if cn_match:
@@ -332,33 +337,40 @@ class TitleCleaner:
                     cn_match = filtered
         
         sep = " " if split_mode else ""
-        cn_name = zhconv.convert(sep.join(cn_match).strip(), "zh-hans") if cn_match else None
+        cn_orig = sep.join(cn_match).strip() if cn_match else None
+        cn_simp = zhconv.convert(cn_orig, "zh-hans") if cn_orig else None
         
         # [Fix] 再次清理中文名：移除可能残留的开头/结尾标点
-        if cn_name:
-            cn_name = cn_name.strip(" 、，。！？!?,.")
+        if cn_simp:
+            cn_simp = cn_simp.strip(" 、，。！？!?,.：:")
+            cn_orig = cn_orig.strip(" 、，。！？!?,.：:")
         
-        # [Fix] 如果提取的中文名仅包含数字/符号/xX，视为无效
-        if cn_name and (re.match(r'^[\d\s\.\-\+\:\！\!xX]+$', cn_name) or len(cn_name) < 1):
-            debug_logs.append(f"[拆分] 丢弃无效/纯符号中文名: {cn_name}")
-            cn_name = None
+        # [Fix] 如果提取的中文名仅包含数字/符号/xX，或者不含任何汉字/假名，视为无效
+        if cn_simp:
+            is_invalid_chars = re.match(r'^[\d\s\.\-\+\:\！\!\?\？\：xX]+$', cn_simp)
+            has_real_cjk = re.search(r"[\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff]", cn_simp)
+            
+            if is_invalid_chars or not has_real_cjk or len(cn_simp) < 1:
+                debug_logs.append(f"[拆分] 丢弃无效/纯符号/无语义中文名: {cn_simp}")
+                cn_simp, cn_orig = None, None
 
-        if cn_name: debug_logs.append(f"[拆分] 提取到中文剧名块: {cn_name}")
+        if cn_simp: debug_logs.append(f"[拆分] 提取到中文剧名块: {cn_simp}")
         
-        en_name = en_match[0].strip() if en_match else None
+        # [Optimization] 允许合并多个英文特征块，提高对复杂标题的覆盖能力
+        en_name = " ".join([m.strip() for m in en_match]) if en_match else None
         # [Fix] 英文名校验逻辑：防止将制作组碎屑(SFSub)误认为标题
         if en_name:
             # 1. 过滤掉极短的单词 (如 &)
             if len(en_name) < 2: en_name = None
-            # 2. 如果英文名全大写且很短，或者包含 & 等连接符，很有可能是残留的制作组
-            elif (en_name.isupper() and len(en_name) < 6) or "&" in en_name:
+            # 2. 如果英文名全大写且很短，很有可能是残留的制作组碎屑
+            elif (en_name.isupper() and len(en_name) < 6):
                 debug_logs.append(f"[拆分] 丢弃疑似制作组残骸的英文名: {en_name}")
                 en_name = None
             # 3. 如果英文名末尾还残留了 E01/01 这种模式 (可能由 Anitopy 误吞)，再次强制切除
             else:
                 en_name = re.sub(r"(?i)\s+(?:EP|E|S|#)?\d+$", "", en_name).strip()
 
-        if en_name and cn_name and en_name.lower() in cn_name.lower(): en_name = None
+        if en_name and cn_simp and en_name.lower() in cn_simp.lower(): en_name = None
         if en_name: debug_logs.append(f"[拆分] 提取到英文特征块: {en_name}")
                 
-        return cn_name, en_name, debug_logs
+        return cn_simp, cn_orig, en_name, debug_logs

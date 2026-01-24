@@ -212,8 +212,8 @@ class PostProcessor:
                     current_logs.append(f"┣ [修正] 成功回捞到标题: {raw_name}")
             
             residual_title, debug5_clean = TitleCleaner.residual_clean(raw_name, meta_obj.year, meta_obj.begin_episode)
-            cn, en, debug5_dual = TitleCleaner.extract_dual_title(residual_title, split_mode=batch_enhancement)
-            meta_obj.cn_name, meta_obj.en_name = cn, en
+            cn_simp, cn_orig, en, debug5_dual = TitleCleaner.extract_dual_title(residual_title, split_mode=batch_enhancement)
+            meta_obj.cn_name, meta_obj.original_cn_name, meta_obj.en_name = cn_simp, cn_orig, en
             
             # [AI] 如果正则没分出英文名，尝试使用 AI 提取的原名
             if not meta_obj.en_name and info_dict.get("temp_original_title"):
