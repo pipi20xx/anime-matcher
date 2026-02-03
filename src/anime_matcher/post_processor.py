@@ -150,7 +150,7 @@ class PostProcessor:
                 raw_name = re.sub(r"\s+", " ", raw_name).strip()
 
             # [Fix] 扩充无效标题黑名单
-            invalid_keywords = ["MOVIE", "OVA", "ONA", "TV", "BD", "DVD", "SP", "SPECIAL", "MP4", "MKV", "BIG5", "GB", "CHS", "CHT", "JAP", "ENG"]
+            invalid_keywords = ["MOVIE", "OVA", "ONA", "TV", "BD", "DVD", "SP", "SPECIAL", "SPECIALS", "OAD", "MP4", "MKV", "BIG5", "GB", "CHS", "CHT", "JAP", "ENG"]
             is_tech_garbage = raw_name.upper() in invalid_keywords or re.match(r"^\d{3,4}[pPXx]?$", raw_name)
             
             # [NEW] 额外检测：如果标题包含 "3rd", "2nd" 这种可能的集数别名，也视为可疑标题

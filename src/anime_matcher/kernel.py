@@ -294,9 +294,10 @@ def core_recognize(
     # [Optimize] 递归清理：合并空格并处理由于剥离产生的孤儿括号
     processed_title = re.sub(r"\s+", " ", processed_title)
     # 匹配空括号或仅含空格/符号的括号：[ ], ( - ), etc.
-    shell_pattern = r"[\[\(\{（【][\s\-\._/]*[\]\)\}）】]"
+    shell_pattern = r"[\[\(\{（【][\s\-\._/&+\*★☆]*[\]\)\}）】]"
     # 匹配孤儿括号：前面没有对应开括号的闭括号，或后面没有对应闭括号的开括号
-    orphan_pattern = r"(?<![\[\(\{（【])[\]\)\}）】]|[\[\(\{（【](?![^\]\}）】]*[\]\)\}）】])"
+    # [Fix] 增加不定长回溯，防止误杀包含文本的合法括号块 (如 [Movie])
+    orphan_pattern = r"(?<![\[\(\{（【][^\]\}）】]*)[\]\)\}）】]|[\[\(\{（【](?![^\]\}）】]*[\]\)\}）】])"
     
     for _ in range(3): 
         processed_title = re.sub(shell_pattern, " ", processed_title)

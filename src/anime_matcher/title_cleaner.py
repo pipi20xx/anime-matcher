@@ -184,9 +184,10 @@ class TitleCleaner:
         temp = re.sub(r"[\u200b-\u200f\uFEFF\u202a-\u202e]", "", temp)
         
         # [Fix] 移动空壳括号保险清理到最后：移除被掏空后的空壳 (如 [ ], ( ), 【 】)
-        temp = re.sub(r"[\[\(\{【][\s\-\._/]*[\]\)\}】]", " ", temp)
+        shell_pattern = r"[\[\(\{（【][\s\-\._/&+\*★☆]*[\]\)\}）】]"
+        temp = re.sub(shell_pattern, " ", temp)
         for _ in range(2): 
-            temp = re.sub(r"[\[\(\{【][\s\-\._/]*[\]\)\}】]", " ", temp)
+            temp = re.sub(shell_pattern, " ", temp)
                 
         final_cleaned = re.sub(r"\s+", " ", temp).strip()
         debug_logs.append(f"清洗后结果: {final_cleaned}")
@@ -266,8 +267,8 @@ class TitleCleaner:
                 temp = re.sub(sp, " ", temp, flags=re.I)
         
         # [NEW] 剥离标题末尾的制作组/站点残骸 (例如 -ADE, @ADWeb)
-        # 逻辑：匹配末尾的 [分隔符][非数字字母][单词]
-        tail_garbage_pat = r"[-@][a-zA-Z0-9]+$"
+        # [Fix] 优化判定逻辑：仅剥离全大写短标签(<=3位)或以@开头的站点标签，防止误伤 '-hime' 等正常标题内容
+        tail_garbage_pat = r"(@[a-zA-Z0-9]+|-([A-Z0-9]{1,3}))$"
         if re.search(tail_garbage_pat, temp.strip()):
             match = re.search(tail_garbage_pat, temp.strip())
             debug_logs.append(f"[清洗] 剥离标题末尾站点/组标签: {match.group(0)}")
