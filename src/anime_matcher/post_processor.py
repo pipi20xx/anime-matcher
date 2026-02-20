@@ -211,7 +211,9 @@ class PostProcessor:
                     raw_name = potential_titles[0]
                     current_logs.append(f"┣ [修正] 成功回捞到标题: {raw_name}")
             
-            residual_title, debug5_clean = TitleCleaner.residual_clean(raw_name, meta_obj.year, meta_obj.begin_episode)
+            # [Fix] 获取 Release Version 并传入清洗器
+            rel_ver = info_dict.get("release_version")
+            residual_title, debug5_clean = TitleCleaner.residual_clean(raw_name, meta_obj.year, meta_obj.begin_episode, version=rel_ver)
             cn_simp, cn_orig, en, debug5_dual = TitleCleaner.extract_dual_title(residual_title, split_mode=batch_enhancement)
             meta_obj.cn_name, meta_obj.original_cn_name, meta_obj.en_name = cn_simp, cn_orig, en
             

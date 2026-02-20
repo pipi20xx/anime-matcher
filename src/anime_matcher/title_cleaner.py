@@ -194,7 +194,7 @@ class TitleCleaner:
         return final_cleaned, forced_meta, debug_logs
 
     @staticmethod
-    def residual_clean(raw_title: str, year: str = None, episode: int = None) -> Tuple[str, List[str]]:
+    def residual_clean(raw_title: str, year: str = None, episode: int = None, version: int = None) -> Tuple[str, List[str]]:
         """[DEBUG] 执行残差剥离提纯"""
         temp = raw_title
         debug_logs = []
@@ -224,6 +224,22 @@ class TitleCleaner:
             debug_logs.append(f"[清洗] 剥离标题中残留的年份: {year}")
             temp = temp.replace(str(year), " ")
             
+        # [New] 版本号清洗增强
+        if version is not None:
+            # 剥离 V2/V3 等版本号 (支持带空格/连字符的情况)
+            ver_pat = rf"(?i)(?:\b|[-_. ])[vV]{version}(?:\b|[-_. ])|(?i)\bver{version}\b"
+            if re.search(ver_pat, temp):
+                debug_logs.append(f"[清洗] 剥离标题中残留的版本号: V{version}")
+                temp = re.sub(ver_pat, " ", temp)
+
+        # [New] 针对你反馈的 "ray MV" 这种常见残骸进行剥离
+        # 通常出现在标题末尾，包含技术特征
+        extra_garbage = r"(?i)\s+(?:ray\s+MV|MV|Web|DL|TV|BD|DVD|Special)\b$"
+        if re.search(extra_garbage, temp.strip()):
+            match = re.search(extra_garbage, temp.strip())
+            debug_logs.append(f"[清洗] 剥离标题末尾技术残骸: {match.group(0)}")
+            temp = re.sub(extra_garbage, " ", temp.strip())
+
         if episode is not None:
             # 增强型集数剥离：支持 E/EP/Episode 等前缀
             ep_pat = rf"(?i)(?:EP|Episode|E|#|第|集|话|話|巻|卷)\s*0*{episode}\b|\b0*{episode}\b"
