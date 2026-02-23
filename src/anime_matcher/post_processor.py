@@ -4,7 +4,6 @@ from .constants import MediaType, PLATFORM_RE
 from .data_models import MetaBase
 from .tag_extractor import TagExtractor
 from .title_cleaner import TitleCleaner
-from .special_episode_handler import SpecialEpisodeHandler
 
 def to_str(val: Any) -> Optional[str]:
     if not val: return None
@@ -27,11 +26,7 @@ class PostProcessor:
         meta_obj.is_batch = False
         meta_obj.end_episode = None
 
-        # [Strategy] 优先触发特权提取器 (针对特定字幕组的硬规则)
-        spec_ep, spec_raw, spec_logs = SpecialEpisodeHandler.extract(input_name)
-        if spec_ep is not None:
-            meta_obj.begin_episode = spec_ep
-            v_logs.extend(spec_logs)
+        # [Note] 特权提取已在 STEP 1.5 完成，此处不再重复调用
 
         if not meta_obj.begin_episode:
             raw_ep = info_dict.get("episode_number")
@@ -85,7 +80,8 @@ class PostProcessor:
             current_logs.extend(v_logs)
 
         # [New] Step 4.5: 合集增强模式 (Config Controlled)
-        if batch_enhancement:
+        # [Note] 只有在特权提取未命中时才执行合集增强
+        if batch_enhancement and not meta_obj.begin_episode:
              from .batch_helper import BatchHelper
              s, e, b_logs = BatchHelper.analyze_filename(input_name)
              if s is not None and e is not None:

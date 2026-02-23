@@ -7,17 +7,46 @@ from .providers.tmdb.client import TMDBProvider
 from .providers.bangumi.client import BangumiProvider
 from .render_engine import RenderEngine
 from .storage_manager import storage
+from .special_episode_handler import SpecialEpisodeHandler
 import uvicorn
 import os
 import time
 
 app = FastAPI(title="ANIMEProMatcher Kernel Service")
 
+def _is_chinese(text: str) -> bool:
+    if not text:
+        return False
+    for char in text:
+        if '\u4e00' <= char <= '\u9fff':
+            return True
+    return False
+
+def _split_title(title: str) -> list:
+    if not title or '/' not in title:
+        return [title] if title else []
+    
+    parts = [p.strip() for p in title.split('/') if p.strip()]
+    if len(parts) < 2:
+        return parts
+    
+    cn_titles = [p for p in parts if _is_chinese(p)]
+    en_titles = [p for p in parts if not _is_chinese(p)]
+    
+    result = []
+    if cn_titles:
+        result.append(cn_titles[0])
+    if en_titles:
+        result.append(en_titles[0])
+    
+    return result if result else parts
+
 class RecognitionRequest(BaseModel):
-    filename: str = Field(..., description="待识别的文件名", example="[ANi] 花樣少年少女 - 02.mkv")
+    filename: str = Field(..., description="待识别的文件名", json_schema_extra={"example": "[ANi] 花樣少年少女 - 02.mkv"})
     custom_words: List[str] = Field(default=[], description="L1 预处理规则")
     custom_groups: List[str] = Field(default=[], description="自定义制作组")
     custom_render: List[str] = Field(default=[], description="L3 专家渲染规则 (翻译/偏移/重定向)")
+    special_rules: List[str] = Field(default=[], description="特权提取规则 (正则|||字幕组索引|||标题索引|||集数索引|||描述)")
     force_filename: bool = Field(default=False, description="强制单文件模式")
     batch_enhancement: bool = Field(default=False, description="合集增强模式")
     
@@ -131,6 +160,11 @@ async def recognize(req: RecognitionRequest):
     active_storage = req.use_storage
 
     try:
+        # --- [STAGE 0.5] 加载特权提取规则 ---
+        if req.special_rules:
+            SpecialEpisodeHandler.load_external_rules(req.special_rules)
+            logs.append(f"┃ [配置] 特权规则载入: {len(req.special_rules)} 条")
+        
         # --- [STAGE 1] 本地解析 (L1 Kernel) ---
         meta = core_recognize(
             input_name=req.filename,
@@ -188,38 +222,61 @@ async def recognize(req: RecognitionRequest):
                 m_type_str = l1_dict["type"]
                 
                 if current_tmdb_id:
-                    # 如果有 ID，直接通过 ID 获取详情
                     cloud_data = await tmdb_client.get_details(current_tmdb_id, m_type_str, logs)
                 else:
-                    # 确定搜索策略
+                    privileged_title = getattr(meta, 'privileged_title', None)
+                    privileged_titles = _split_title(privileged_title) if privileged_title else []
+                    
+                    if privileged_titles:
+                        logs.append(f"┃ [匹配] 🎯 使用特权标题优先搜索: {' | '.join(privileged_titles)}")
+                    
                     if req.bangumi_priority:
                         search_order = ["bangumi", "tmdb"]
                     else:
                         search_order = ["tmdb", "bangumi"] if req.bangumi_failover else ["tmdb"]
                     
-                    for source in search_order:
+                    async def search_cloud(use_privileged: bool = False, title_index: int = 0):
+                        nonlocal cloud_data
+                        if cloud_data: return
+                        
+                        if use_privileged and privileged_titles:
+                            title = privileged_titles[title_index] if title_index < len(privileged_titles) else privileged_titles[0]
+                            cn = title if _is_chinese(title) else None
+                            en = title if not _is_chinese(title) else None
+                            original_cn = None
+                        else:
+                            cn = l1_dict["cn_name"]
+                            en = l1_dict["en_name"]
+                            original_cn = meta.original_cn_name
+                        
+                        for source in search_order:
+                            if cloud_data: break
+                            if source == "tmdb":
+                                cloud_data = await tmdb_client.smart_search(
+                                    cn, en, l1_dict["year"], m_type_str, logs, 
+                                    anime_priority=req.anime_priority,
+                                    original_cn_name=original_cn
+                                )
+                            elif source == "bangumi":
+                                queries = [q for q in [en, cn] if q]
+                                if not queries and meta.processed_name:
+                                    queries = [meta.processed_name]
+                                
+                                for q in queries:
+                                    if cloud_data: break
+                                    bgm_subject = await bgm_client.search_subject(q, logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
+                                    if bgm_subject:
+                                        logs.append(f"┃ [匹配] 🪄 Bangumi 命中，尝试映射...")
+                                        cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
+                                        if not cloud_data: 
+                                            logs.append(f"┃ [匹配] ⚠️ Bangumi 映射 TMDB 失败，回退到原始元数据")
+                                            cloud_data = bgm_subject
+                    
+                    for i in range(len(privileged_titles)):
                         if cloud_data: break
-                        if source == "tmdb":
-                            cloud_data = await tmdb_client.smart_search(
-                                l1_dict["cn_name"], l1_dict["en_name"], l1_dict["year"], m_type_str, logs, 
-                                anime_priority=req.anime_priority,
-                                original_cn_name=meta.original_cn_name
-                            )
-                        elif source == "bangumi":
-                            # 故障转移增强：如果解析出的名字为空，则使用预处理后的标题作为兜底搜索词
-                            queries = [q for q in [l1_dict["en_name"], l1_dict["cn_name"]] if q]
-                            if not queries and meta.processed_name:
-                                queries = [meta.processed_name]
-
-                            for q in queries:
-                                if cloud_data: break
-                                bgm_subject = await bgm_client.search_subject(q, logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
-                                if bgm_subject:
-                                    logs.append(f"┃ [匹配] 🪄 Bangumi 命中，尝试映射...")
-                                    cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
-                                    if not cloud_data: 
-                                        logs.append(f"┃ [匹配] ⚠️ Bangumi 映射 TMDB 失败，回退到原始元数据")
-                                        cloud_data = bgm_subject
+                        await search_cloud(use_privileged=True, title_index=i)
+                    if not cloud_data:
+                        await search_cloud(use_privileged=False)
                 
                 # 存入缓存
                 if active_storage and cloud_data:

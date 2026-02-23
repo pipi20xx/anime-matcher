@@ -24,3 +24,4 @@ class MetaBase:
     tags: List[str] = field(default_factory=list)
     processed_name: Optional[str] = None
     original_cn_name: Optional[str] = None
+    privileged_title: Optional[str] = None  # 特权提取的标题 (优先搜索候选)

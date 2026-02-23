@@ -21,6 +21,7 @@
   "custom_words": [],
   "custom_groups": [],
   "custom_render": [],
+  "special_rules": [],
   "force_filename": false,
   "batch_enhancement": false,
   "with_cloud": false,
@@ -38,6 +39,32 @@
 }
 ```
 
+### 完整请求示例 (云端联动)
+
+```json
+{
+  "filename": "[MILKs&LoliHouse] Saioshi no Gikei o Mederu Tame, Nagaikishimasu! - 08 [WebRip 1080p HEVC-10bit AAC ASS].mkv",
+  "custom_words": ["Saioshi no Gikei o Mederu Tame, Nagaikishimasu! => 宰相的义弟大人"],
+  "custom_groups": ["MILKs", "LoliHouse", "MILKs&LoliHouse"],
+  "custom_render": ["@?{[tmdbid=273134;type=tv;e=13-24]} => {[s=2;e=EP-12]}"],
+  "special_rules": ["^\\[(MILKs&LoliHouse)\\]\\s+(.+?)\\s+-\\s+(\\d{1,4})|||1|||2|||3|||MLH定向"],
+  "force_filename": false,
+  "batch_enhancement": false,
+  "with_cloud": true,
+  "use_storage": false,
+  "anime_priority": true,
+  "bangumi_priority": false,
+  "bangumi_failover": true
+}
+```
+
+**示例说明：**
+- `custom_words`: 将日文标题替换为中文，便于云端搜索
+- `custom_groups`: 预定义制作组名单，确保正确识别 `MILKs&LoliHouse`
+- `custom_render`: 专家渲染规则 - 当 TMDB ID 为 273134 且集数在 13-24 时，修正为第二季并偏移集数
+- `special_rules`: 特权提取规则 - 针对特定字幕组格式，优先提取标题和集数
+- `with_cloud: true`: 开启云端联动，自动从 TMDB/Bangumi 获取元数据
+
 ### 请求参数详细说明
 
 | 字段名 | 默认值 | 类型 | 功能描述 |
@@ -46,6 +73,7 @@
 | **custom_words** | `[]` | list | L1 预处理规则 (A => B)，在解析前执行 |
 | **custom_groups** | `[]` | list | 自定义制作组名单，辅助内核锁定小组字段 |
 | **custom_render** | `[]` | list | **L3 专家渲染规则**: 支持条件修改与偏移计算 |
+| **special_rules** | `[]` | list | **特权提取规则**: 格式 `正则\|\|\|字幕组索引\|\|\|标题索引\|\|\|集数索引\|\|\|描述` |
 | **force_filename**| `false` | bool | 强制单文件模式，屏蔽路径干扰词 |
 | **batch_enhancement** | `false`| bool | 开启合集/批处理增强逻辑 |
 | **with_cloud** | `false` | bool | **云端联动总开关**，开启后执行网络匹配 |
@@ -120,10 +148,11 @@ cd anime-matcher && docker-compose up -d
 
 ## 📖 规则编写指南 (Rules Guide)
 
-为了实现精准的识别与个性化的重命名，本项目支持两套强大的规则系统：
+为了实现精准的识别与个性化的重命名，本项目支持三套强大的规则系统：
 
-- [**自定义识别词 (预处理)**](./docs/recognition-rules.md): 作用于“文件名”解析前。用于屏蔽干扰字符、纠正标题误匹配、或强制锁定特定 TMDB ID。
-- [**自定义渲染词 (后处理)**](./docs/render-rules.md): 作用于“匹配结论”生成后。支持专家级的条件修正（基于 ID/季/集）、集数偏移计算、自动打标签等。
+- [**自定义特权规则 (最高优先级)**](./docs/privileged-rules.md): 作用于识别流程最早期。命中后集数直接锁定，标题作为优先搜索候选。
+- [**自定义识别词 (预处理)**](./docs/recognition-rules.md): 作用于"文件名"解析前。用于屏蔽干扰字符、纠正标题误匹配、或强制锁定特定 TMDB ID。
+- [**自定义渲染词 (后处理)**](./docs/render-rules.md): 作用于"匹配结论"生成后。支持专家级的条件修正（基于 ID/季/集）、集数偏移计算、自动打标签等。
 
 ---
 

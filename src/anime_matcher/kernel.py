@@ -55,31 +55,29 @@ def core_recognize(
         if "s" in forced: meta_obj.begin_season = int(forced["s"])
         if "e" in forced: meta_obj.begin_episode = int(forced["e"])
 
-    # --- [NEW] STEP 1.5: 特权集数探测与屏蔽 ---
+    # --- [NEW] STEP 1.5: 特权提取 (标题 + 集数) ---
     from .special_episode_handler import SpecialEpisodeHandler
-    sp_ep, sp_raw, sp_logs = SpecialEpisodeHandler.extract(input_name)
+    sp_group, sp_title, sp_ep, sp_raw, sp_logs = SpecialEpisodeHandler.extract(input_name)
     if sp_ep is not None:
         meta_obj.begin_episode = sp_ep
+        meta_obj.privileged_title = sp_title  # 存储特权标题，用于优先搜索
+        if sp_group and not meta_obj.resource_team:
+            meta_obj.resource_team = sp_group  # 也提取字幕组
         current_logs.append(f"┃")
-        # 更加精准的屏蔽：只屏蔽提取到的集数原文数字
         if sp_raw:
-            # 在清洗后的标题中尝试寻找这个数字
-            # 增加边界判定，防止误伤剧名中的数字
             pattern = rf"(?<!\d){re.escape(sp_raw)}(?!\d)"
             if re.search(pattern, processed_title):
                 processed_title = re.sub(pattern, " ", processed_title, count=1)
                 sp_logs.append(f"┣ [Shield] 特权集数已从标题中剥离: {sp_raw}")
             else:
-                # 备选：尝试去掉前导零匹配 (如 02 -> 2)
                 sp_raw_alt = str(int(sp_raw))
                 pattern_alt = rf"(?<!\d){re.escape(sp_raw_alt)}(?!\d)"
                 if sp_raw_alt != sp_raw and re.search(pattern_alt, processed_title):
                     processed_title = re.sub(pattern_alt, " ", processed_title, count=1)
                     sp_logs.append(f"┣ [Shield] 特权集数已从标题中剥离 (格式转换): {sp_raw_alt}")
         
-        # [NEW] 输出屏蔽后的结果
         sp_logs.append(f"清洗后结果: {processed_title}")
-        logger_stub.debug_out("STEP 1.5: 特权集数探测与屏蔽", sp_logs)
+        logger_stub.debug_out("STEP 1.5: 特权提取 (标题 + 集数)", sp_logs)
 
     # --- STEP 2: 元数据独立探测 ---
     current_logs.append(f"┃")
