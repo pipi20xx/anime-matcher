@@ -350,19 +350,51 @@ class PostProcessor:
             current_logs.extend(debug6)
 
         # --- STEP 7: 最终判定 ---
-        if meta_obj.forced_tmdbid: pass
+        current_logs.append(f"┃")
+        current_logs.append(f"┃ [DEBUG][STEP 7]: 类型判定")
+        
+        if meta_obj.forced_tmdbid: 
+            current_logs.append(f"┣ [类型判定] 已锁定 TMDB ID，跳过自动类型判断")
         else:
+            # [Enhancement] 检查原始文件名是否包含电影关键词
+            movie_keywords = [
+                r"(?i)\bMovie\b",
+                r"(?i)\b剧场版\b",
+                r"(?i)\b劇場版\b",
+                r"(?i)\bThe Movie\b",
+                r"(?i)\bMovie Edition\b",
+                r"(?i)\b劇場\b",
+            ]
+            
+            movie_keyword_found = None
+            for keyword in movie_keywords:
+                if re.search(keyword, input_name):
+                    movie_keyword_found = keyword
+                    break
+            
+            if movie_keyword_found:
+                current_logs.append(f"┣ [类型判定] 原始文件名包含电影关键词 '{movie_keyword_found}'，强制判定为 Movie 模式")
+                meta_obj.type = MediaType.MOVIE
+                # 清除可能误判的集数
+                if meta_obj.begin_episode:
+                    current_logs.append(f"┣ [类型判定] 清除误判的集数 E{meta_obj.begin_episode}")
+                    meta_obj.begin_episode = None
             # [Fix] 如果集数是一个年份 (如 2019)，则判定为 Movie，并清空集数
-            if meta_obj.begin_episode and isinstance(meta_obj.begin_episode, (int, float)) and meta_obj.begin_episode > 1900:
-                current_logs.append(f"┣ [Fix] 集数 E{meta_obj.begin_episode} 判定为年份，修正为 Movie 模式")
+            elif meta_obj.begin_episode and isinstance(meta_obj.begin_episode, (int, float)) and meta_obj.begin_episode > 1900:
+                current_logs.append(f"┣ [类型判定] 集数 E{meta_obj.begin_episode} 判定为年份，修正为 Movie 模式")
                 meta_obj.begin_episode = None
                 meta_obj.type = MediaType.MOVIE
             elif meta_obj.begin_season is not None or meta_obj.begin_episode is not None:
+                current_logs.append(f"┣ [类型判定] 检测到季号/集数 (S{meta_obj.begin_season}/E{meta_obj.begin_episode})，判定为 TV 类型")
                 meta_obj.type = MediaType.TV
                 if meta_obj.begin_season is None: meta_obj.begin_season = 1
             else: 
+                current_logs.append(f"┣ [类型判定] 未检测到季号/集数，判定为 Movie 类型")
                 meta_obj.type = MediaType.MOVIE
             
             # [Fix] 如果提取到了季号，不管有没有集数，都视为 TV
             if meta_obj.begin_season:
+                current_logs.append(f"┣ [类型判定] 确认季号存在，最终类型: TV")
                 meta_obj.type = MediaType.TV
+            else:
+                current_logs.append(f"┣ [类型判定] 最终类型: {meta_obj.type.value.upper()}")
