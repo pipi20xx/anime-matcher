@@ -200,11 +200,18 @@ class TMDBProvider:
         if cached: return cached
 
         params = {"query": query, "include_adult": "false", "language": lang}
-        if year: params["year" if media_type == "movie" else "first_air_date_year"] = year
+        
+        if year and media_type == "movie":
+            params["year"] = year
+        
         data = await self._fetch(f"/search/{media_type}", params, logs=logs)
         results = (data or {}).get("results", [])
+        
         if not results and year:
-            params.pop("year" if media_type == "movie" else "first_air_date_year")
+            if media_type == "tv":
+                params["first_air_date_year"] = year
+            else:
+                params.pop("year", None)
             data_retry = await self._fetch(f"/search/{media_type}", params, logs=logs)
             if data_retry: results = data_retry.get("results", [])
             
