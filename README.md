@@ -47,7 +47,7 @@
   "custom_words": ["Saioshi no Gikei o Mederu Tame, Nagaikishimasu! => 宰相的义弟大人"],
   "custom_groups": ["MILKs", "LoliHouse", "MILKs&LoliHouse"],
   "custom_render": ["@?{[tmdbid=273134;type=tv;e=13-24]} => {[s=2;e=EP-12]}"],
-  "special_rules": ["^\\[(MILKs&LoliHouse)\\]\\s+(.+?)\\s+-\\s+(\\d{1,4})|||1|||2|||3|||MLH定向"],
+  "special_rules": ["^\\[(MILKs&LoliHouse)\\]\\s+(.+?)\\s+-\\s+(\\d{1,4}) => {[group=\\1;title=\\2;e=\\3]} # MLH定向"],
   "force_filename": false,
   "batch_enhancement": false,
   "with_cloud": true,
@@ -73,7 +73,7 @@
 | **custom_words** | `[]` | list | L1 预处理规则 (A => B)，在解析前执行 |
 | **custom_groups** | `[]` | list | 自定义制作组名单，辅助内核锁定小组字段 |
 | **custom_render** | `[]` | list | **L3 专家渲染规则**: 支持条件修改与偏移计算 |
-| **special_rules** | `[]` | list | **特权提取规则**: 格式 `正则\|\|\|字幕组索引\|\|\|标题索引\|\|\|集数索引\|\|\|描述` |
+| **special_rules** | `[]` | list | **特权提取规则**: 格式 `正则表达式 => {[字段=值;字段=值]} # 描述`，支持字段: group/title/e/s/tmdbid/type/year |
 | **force_filename**| `false` | bool | 强制单文件模式，屏蔽路径干扰词 |
 | **batch_enhancement** | `false`| bool | 开启合集/批处理增强逻辑 |
 | **with_cloud** | `false` | bool | **云端联动总开关**，开启后执行网络匹配 |
