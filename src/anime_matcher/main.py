@@ -41,6 +41,18 @@ def _split_title(title: str) -> list:
     
     return result if result else parts
 
+def _clean_privileged_title(title: str) -> str:
+    if not title:
+        return title
+    
+    import re
+    
+    cleaned = re.sub(r'\.', ' ', title)
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    cleaned = cleaned.strip()
+    
+    return cleaned
+
 class RecognitionRequest(BaseModel):
     filename: str = Field(..., description="待识别的文件名", json_schema_extra={"example": "[ANi] 花樣少年少女 - 02.mkv"})
     custom_words: List[str] = Field(default=[], description="L1 预处理规则")
@@ -235,12 +247,15 @@ async def recognize(req: RecognitionRequest):
                     else:
                         search_order = ["tmdb", "bangumi"] if req.bangumi_failover else ["tmdb"]
                     
-                    async def search_cloud(use_privileged: bool = False, title_index: int = 0):
+                    async def search_cloud(use_privileged: bool = False, title_index: int = 0, clean_privileged: bool = False):
                         nonlocal cloud_data
                         if cloud_data: return
                         
                         if use_privileged and privileged_titles:
                             title = privileged_titles[title_index] if title_index < len(privileged_titles) else privileged_titles[0]
+                            if clean_privileged:
+                                title = _clean_privileged_title(title)
+                                logs.append(f"┃ [匹配] 🧹 使用清洗后的特权标题: {title}")
                             cn = title if _is_chinese(title) else None
                             en = title if not _is_chinese(title) else None
                             original_cn = None
@@ -275,7 +290,12 @@ async def recognize(req: RecognitionRequest):
                     for i in range(len(privileged_titles)):
                         if cloud_data: break
                         await search_cloud(use_privileged=True, title_index=i)
+                    for i in range(len(privileged_titles)):
+                        if cloud_data: break
+                        await search_cloud(use_privileged=True, title_index=i, clean_privileged=True)
                     if not cloud_data:
+                        if privileged_titles:
+                            logs.append(f"┃ [匹配] 🔄 特权标题搜索失败，使用清洗后的标题继续搜索: {l1_dict['cn_name'] or l1_dict['en_name']}")
                         await search_cloud(use_privileged=False)
                 
                 # 存入缓存
