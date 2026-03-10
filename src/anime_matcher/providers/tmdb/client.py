@@ -153,6 +153,23 @@ class TMDBProvider:
         storage.set_metadata(cache_key, "tmdb_discover", resp_data)
         return resp_data
 
+    async def get_popular(self, media_type: str) -> Dict:
+        cache_key = f"popular:v3:{media_type}"
+        cached = storage.get_metadata(cache_key, "tmdb_discover")
+        if cached: return cached
+        
+        data = await self._fetch(f"/discover/{media_type}", {"with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc"})
+        results = []
+        for i in (data or {}).get("results", []):
+            norm = TMDBMatcher.normalize(i, media_type_hint=media_type)
+            norm["poster_path"] = self._proxy_img(norm["poster_path"])
+            norm["backdrop_path"] = self._proxy_img(norm["backdrop_path"])
+            results.append(norm)
+        
+        resp_data = {"results": results}
+        storage.set_metadata(cache_key, "tmdb_discover", resp_data)
+        return resp_data
+
     async def get_details(self, tmdb_id: str, media_type: str, logs: Any = None) -> Optional[Dict]:
         cache_key = f"detail:v3:{media_type}:{tmdb_id}"
         cached = storage.get_metadata(cache_key, "tmdb_detail")
@@ -189,8 +206,9 @@ class TMDBProvider:
         for ep in data["episodes"]:
             results.append({
                 "episode": ep.get("episode_number"),
-                "air_date": ep.get("air_date"), # YYYY-MM-DD
-                "name": ep.get("name")
+                "air_date": ep.get("air_date"),
+                "name": ep.get("name"),
+                "episode_type": ep.get("episode_type")
             })
         return results
 
@@ -244,7 +262,8 @@ class TMDBProvider:
                     targets = self._build_match_targets(cn_name, en_name, cn_queries, original_cn_name=original_cn_name)
                     temp_scored = []
                     for c_idx, item in enumerate(merged_candidates[:5]):
-                        score, _, _, _ = TMDBMatcher.calculate_match_score(item, targets, cn_name or "", en_name or "", c_idx, anime_priority)
+                        is_from_segment = item.get("_is_from_segment", False)
+                        score, _, _, _ = TMDBMatcher.calculate_match_score(item, targets, cn_name or "", en_name or "", c_idx, anime_priority, is_from_segment)
                         temp_scored.append(score)
                     
                     if temp_scored and max(temp_scored) >= 95:
@@ -258,9 +277,11 @@ class TMDBProvider:
                     for item in res_list:
                         if item.get("id") not in seen_ids:
                             seen_ids.add(item.get("id"))
+                            item["_is_from_segment"] = is_from_segment
                             merged_candidates.append(item)
                     return await self._process_candidates(merged_candidates, seen_ids, cn_name, en_name, cn_queries, media_type, logs, anime_priority, original_cn_name=original_cn_name)
 
+                is_from_segment = idx > 0
                 for item in res_list:
                     if item.get("id") not in seen_ids:
                         seen_ids.add(item.get("id"))
@@ -282,8 +303,9 @@ class TMDBProvider:
         targets = self._build_match_targets(cn_name, en_name, cn_queries, original_cn_name=original_cn_name)
         scored_pool = []
         for idx, item in enumerate(merged_candidates[:10]):
+            is_from_segment = item.get("_is_from_segment", False)
             score, trace, best_match_info, summary = TMDBMatcher.calculate_match_score(
-                item, targets, cn_name or "", en_name or "", idx, anime_priority
+                item, targets, cn_name or "", en_name or "", idx, anime_priority, is_from_segment
             )
             c_name = item.get("title") or item.get("name")
             c_year = (item.get("release_date") or item.get("first_air_date") or "")[:4]
@@ -299,8 +321,8 @@ class TMDBProvider:
         best = scored_pool[0]
         
         _log(f"┃")
-        if best["score"] >= 85 or len(seen_ids) == 1:
-             if len(seen_ids) == 1 and best["score"] < 85:
+        if best["score"] >= 80 or len(seen_ids) == 1:
+             if len(seen_ids) == 1 and best["score"] < 80:
                  _log(f"┃ 🪄 触发[孤独命中]策略 (唯一 ID)")
              
              final_name = best["item"].get("title") or best["item"].get("name")
@@ -316,7 +338,7 @@ class TMDBProvider:
                  fallback_norm["_score"] = best["score"]
                  return fallback_norm
         
-        _log(f"┗ ❌ 置信度不足 ({best['score']:.1f} < 85)")
+        _log(f"┗ ❌ 置信度不足 ({best['score']:.1f} < 80)")
         return None
 
     def _build_match_targets(self, cn_name, en_name, cn_queries, original_cn_name=None):
