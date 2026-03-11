@@ -147,6 +147,30 @@ class TagExtractor:
                 if has_title_feature:
                     return False
             
+            # [New] 包含空格的内容必须严格验证
+            # 真正的制作组通常不会用空格分隔，而标题经常会用空格连接单词
+            if " " in g:
+                # 包含空格的内容必须包含制作组特征词
+                has_group_keyword = bool(re.search(GROUP_KEYWORDS, g, re.I))
+                # 或者是已知的特殊格式（如 VCB-Studio）
+                # 但要排除日文罗马音格式（如 Watanuki-san Chi no）
+                has_valid_dash_format = False
+                if "-" in g:
+                    # 检查连字符格式：真正的制作组连字符前后通常是字母/数字，且无空格
+                    # 例如：VCB-Studio, ANi-Hi10P
+                    # 而日文罗马音通常是：Watanuki-san Chi no（连字符在单词内，后面还有空格）
+                    dash_parts = g.split("-")
+                    # 如果连字符分割后有多部分，且每部分都是字母/数字开头，可能是制作组
+                    if len(dash_parts) >= 2:
+                        # 检查是否所有部分都符合制作组命名规范
+                        all_valid = all(re.match(r"^[A-Za-z0-9]+", part.strip()) for part in dash_parts)
+                        # 并且没有空格分隔多个单词（如 VCB-Studio 可以，但 Watanuki-san Chi no 不行）
+                        no_space_after_dash = all(" " not in part for part in dash_parts[1:])
+                        has_valid_dash_format = all_valid and no_space_after_dash
+                
+                if not has_group_keyword and not has_valid_dash_format:
+                    return False
+            
             # 对于纯英文/数字组名 (如 ANi, VCB-Studio)，只要长度 >= 2 即可通过
             digit_count = sum(c.isdigit() for c in g)
             if digit_count / len(g) > 0.8: return False
@@ -251,7 +275,7 @@ class TagExtractor:
                 elif "DTSHD" in codec_raw: codec = "DTS-HD"
                 elif "EAC3" in codec_raw or "DDP" in codec_raw or "DD+" in codec_raw: codec = "E-AC-3"
                 elif "AC3" in codec_raw or "DD" == codec_raw: codec = "AC-3"
-                elif "TRUEHD" in codec_raw: codec = "TrueHD"
+                elif "TRUEHD" in codec_raw or "THD" in codec_raw: codec = "TrueHD"
                 elif "LPCM" in codec_raw or "PCM" in codec_raw: codec = "LPCM"
                 elif "DTS" == codec_raw: codec = "DTS"
                 elif "AAC" in codec_raw: codec = "AAC"
@@ -259,7 +283,20 @@ class TagExtractor:
                 elif "OPUS" in codec_raw: codec = "Opus"
                 elif "VORBIS" in codec_raw: codec = "Vorbis"
                 channel_raw = m.group(2).lower().replace("_", "") if m.group(2) else ""
-                channel = "2.0" if "2ch" in channel_raw else ("5.1" if "6ch" in channel_raw else ("7.1" if "8ch" in channel_raw else channel_raw))
+                channel = ""
+                if "2ch" in channel_raw: channel = "2.0"
+                elif "6ch" in channel_raw: channel = "5.1"
+                elif "8ch" in channel_raw: channel = "7.1"
+                elif channel_raw.isdigit():
+                    ch_num = int(channel_raw)
+                    if ch_num == 1: channel = "1.0"
+                    elif ch_num == 2: channel = "2.0"
+                    elif ch_num == 3: channel = "3.0"
+                    elif ch_num == 4: channel = "4.0"
+                    elif ch_num == 5: channel = "5.0"
+                    elif ch_num == 6: channel = "5.1"
+                    elif ch_num == 7: channel = "6.1"
+                    elif ch_num == 8: channel = "7.1"
                 full_tag = f"{codec} {channel}".strip() if channel else codec
                 if full_tag not in seen_combos:
                     final_tags.append(full_tag); seen_combos.add(full_tag); raw_log_parts.append(m.group(0))

@@ -247,6 +247,10 @@ async def recognize(req: RecognitionRequest):
                     else:
                         search_order = ["tmdb", "bangumi"] if req.bangumi_failover else ["tmdb"]
                     
+                    is_auto_type = m_type_str == "auto"
+                    if is_auto_type:
+                        logs.append(f"┃ [匹配] 🔍 类型为 AUTO，将同时搜索 TV 和 Movie")
+                    
                     async def search_cloud(use_privileged: bool = False, title_index: int = 0, clean_privileged: bool = False):
                         nonlocal cloud_data
                         if cloud_data: return
@@ -267,11 +271,18 @@ async def recognize(req: RecognitionRequest):
                         for source in search_order:
                             if cloud_data: break
                             if source == "tmdb":
-                                cloud_data = await tmdb_client.smart_search(
-                                    cn, en, l1_dict["year"], m_type_str, logs, 
-                                    anime_priority=req.anime_priority,
-                                    original_cn_name=original_cn
-                                )
+                                if is_auto_type:
+                                    cloud_data = await tmdb_client.smart_search_multi(
+                                        cn, en, l1_dict["year"], logs, 
+                                        anime_priority=req.anime_priority,
+                                        original_cn_name=original_cn
+                                    )
+                                else:
+                                    cloud_data = await tmdb_client.smart_search(
+                                        cn, en, l1_dict["year"], m_type_str, logs, 
+                                        anime_priority=req.anime_priority,
+                                        original_cn_name=original_cn
+                                    )
                             elif source == "bangumi":
                                 queries = [q for q in [en, cn] if q]
                                 if not queries and meta.processed_name:
@@ -279,7 +290,7 @@ async def recognize(req: RecognitionRequest):
                                 
                                 for q in queries:
                                     if cloud_data: break
-                                    bgm_subject = await bgm_client.search_subject(q, logs, current_episode=l1_dict["episode"], expected_type=m_type_str)
+                                    bgm_subject = await bgm_client.search_subject(q, logs, current_episode=l1_dict["episode"], expected_type=m_type_str if not is_auto_type else None)
                                     if bgm_subject:
                                         logs.append(f"┃ [匹配] 🪄 Bangumi 命中，尝试映射...")
                                         cloud_data = await bgm_client.map_to_tmdb(bgm_subject, tmdb_api_key=req.tmdb_api_key or os.environ.get("TMDB_API_KEY", ""), logs=logs, tmdb_proxy=req.tmdb_proxy)
