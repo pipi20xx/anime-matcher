@@ -15,7 +15,7 @@ DYNAMIC_RANGE_RE = r"(?i)(?<![a-zA-Z0-9])(HDR10\+|HDR10|HDR|HLG|Dolby\s*Vision|D
 EFFECT_RE = r"(?i)(?<![a-zA-Z0-9])(3D|REPACK|HQ|Remastered|Extended|Uncut|Internal|Pro|Proper)(?![a-zA-Z0-9])"
 
 # 2. 流媒体平台
-PLATFORM_RE = r"(?i)(?:-)?(?<![a-zA-Z0-9])(Baha|Bilibili|Netflix|NF|Amazon|AMZN|DSNP|Crunchyroll|CR|Hulu|HBO|YouTube|YT|playWEB|B-Global|friDay|LINETV|KKTV|ATVP|IQ|IQIYI|CRAMZN|iT|ABEMA|HIDIVE)(?![a-zA-Z0-9])|(?:-)?(?<![a-zA-Z0-9])(Disney\+|AppleTV\+)"
+PLATFORM_RE = r"(?i)(?:-)?(?<![a-zA-Z0-9])(Baha|Bilibili|Netflix|NF|Amazon|AMZN|DSNP|Crunchyroll|CR|Hulu|HBO|YouTube|YT|playWEB|B-Global|friDay|LINETV|KKTV|ATVP|IQ|IQIYI|CRAMZN|iT|ABEMA|HIDIVE|Viu)(?![a-zA-Z0-9])|(?:-)?(?<![a-zA-Z0-9])(Disney\+|AppleTV\+)"
 
 # 2.5 字幕标签正则 (用于标题屏蔽)
 # [Optimize] 采用“关键词探测法”：只要括号内包含语言+样式特征，即判定为字幕块并整块切除
@@ -30,6 +30,7 @@ NOISE_WORDS = [
     r"(?i)[0-9]{1,2}bit|IMAX|BBC|XXX|DC$",
     r"(?i)Ma10p|Hi10p|Hi10|Ma10|10bit|8bit",
     r"(?i)Full-?HD",
+    r"(?i)\(vfr\)|\(cfr\)|\(VFR\)|\(CFR\)",
     r"年龄限制版|年齡限制版|修正版|无修正|未删减|无修正版|無修正版",
     r"连载|新番|合集|招募翻译|版本|出品|台版|港版|搬运|搬運|[a-zA-Z0-9]+字幕组|[a-zA-Z0-9]+字幕社|[★☆]*[0-9]{1,2}月新番[★☆]*",
     r"(?i)UNCUT|UNRATE|WITH EXTRAS|RERIP|SUBBED|PROPER|REPACK|Complete|Extended|Version|10bit",
