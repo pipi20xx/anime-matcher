@@ -15,4 +15,4 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 
 # 运行微服务
-CMD ["python", "-m", "anime_matcher.main"]
+CMD ["python", "-m", "recognition_service.main"]

@@ -1,7 +1,7 @@
 # 自定义渲染词 (Custom Render)
 
 作用阶段：识别匹配完成后 **后处理**。
-核心处理脚本：`src/anime_matcher/render_engine.py`
+核心处理脚本：`src/recognition_service/render/engine.py`
 
 > **核心区别**：
 > *   **识别词**: 作用于“文件名”，影响**识别准确率**。

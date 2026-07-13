@@ -3,7 +3,7 @@ import asyncio
 import re
 import os
 from typing import List, Optional, Dict, Any, Tuple
-from ...tmdb_matcher.logic import TMDBMatcher
+from recognition_engine.tmdb_matcher.logic import TMDBMatcher
 from ...storage_manager import storage
 
 class TMDBProvider:
@@ -23,8 +23,17 @@ class TMDBProvider:
         else:
             self.proxy = None
 
-    async def _fetch(self, endpoint: str, params: dict = {}, logs: Any = None) -> Optional[Dict]:
-        if not self.api_key: return None
+    async def _fetch(self, endpoint: str, params: dict = {}, logs: Any = None) -> Tuple[Optional[Dict], bool]:
+        """
+        TMDB API 请求核心方法
+        
+        Returns:
+            Tuple[Optional[Dict], bool]: (data, success)
+            - data: 响应数据，失败时为 None
+            - success: True 表示请求成功（包括 HTTP 200 和正常的 HTTP 错误如 404）
+                      False 表示网络错误（连接超时、DNS 解析失败等）
+        """
+        if not self.api_key: return None, False
         
         def _log(msg):
             if hasattr(logs, "log"): logs.log(msg)
@@ -45,7 +54,7 @@ class TMDBProvider:
         async with httpx.AsyncClient(timeout=15, proxy=self.proxy) as client:
             try:
                 resp = await client.get(full_url, params=params)
-                if resp.status_code == 200: return resp.json()
+                if resp.status_code == 200: return resp.json(), True
                 
                 # 记录详细错误信息
                 error_msg = f"┃   ❌ TMDB HTTP {resp.status_code}"
@@ -56,10 +65,10 @@ class TMDBProvider:
                 except: pass
                 
                 _log(error_msg)
-                return None
+                return None, True
             except Exception as e: 
                 _log(f"┃   ❌ TMDB Network Error: {e} (Proxy: {self.proxy or 'None'})")
-                return None
+                return None, False
 
     @staticmethod
     def _proxy_img(path: Optional[str]) -> Optional[str]:
@@ -101,7 +110,7 @@ class TMDBProvider:
         max_tmdb_pages = 0
         total_results = 0
         
-        for data in responses:
+        for data, _ in responses:
             if not data: continue
             for i in data.get("results", []):
                 norm = TMDBMatcher.normalize(i, media_type_hint=media_type)
@@ -131,7 +140,7 @@ class TMDBProvider:
         m_task = self._fetch("/discover/movie", {"with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc", "vote_count.gte": 20})
         t_task = self._fetch("/discover/tv", {"with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc"})
         
-        m_data, t_data = await asyncio.gather(m_task, t_task)
+        (m_data, _), (t_data, _) = await asyncio.gather(m_task, t_task)
         
         results = []
         movies = (m_data or {}).get("results", [])
@@ -158,7 +167,7 @@ class TMDBProvider:
         cached = storage.get_metadata(cache_key, "tmdb_discover")
         if cached: return cached
         
-        data = await self._fetch(f"/discover/{media_type}", {"with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc"})
+        data, _ = await self._fetch(f"/discover/{media_type}", {"with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc"})
         results = []
         for i in (data or {}).get("results", []):
             norm = TMDBMatcher.normalize(i, media_type_hint=media_type)
@@ -175,7 +184,7 @@ class TMDBProvider:
         cached = storage.get_metadata(cache_key, "tmdb_detail")
         if cached: return cached
 
-        data = await self._fetch(f"/{media_type}/{tmdb_id}", {"append_to_response": "credits"}, logs=logs)
+        data, _ = await self._fetch(f"/{media_type}/{tmdb_id}", {"append_to_response": "credits"}, logs=logs)
         if not data: return None
         
         cast_list = []
@@ -198,7 +207,7 @@ class TMDBProvider:
 
     async def get_season_episodes(self, tmdb_id: str, season_number: int, logs: Any = None) -> List[Dict]:
         endpoint = f"/tv/{tmdb_id}/season/{season_number}"
-        data = await self._fetch(endpoint, logs=logs)
+        data, _ = await self._fetch(endpoint, logs=logs)
         if not data or "episodes" not in data:
             return []
         
@@ -212,17 +221,28 @@ class TMDBProvider:
             })
         return results
 
-    async def search(self, query: str, year: Optional[str], media_type: str, logs: Any = None, lang: str = "zh-CN") -> List[Dict]:
+    async def search(self, query: str, year: Optional[str], media_type: str, logs: Any = None, lang: str = "zh-CN") -> Tuple[List[Dict], bool]:
+        """
+        TMDB 搜索接口
+        
+        Returns:
+            Tuple[List[Dict], bool]: (results, success)
+            - results: 搜索结果列表
+            - success: True 表示请求成功，False 表示网络错误
+        """
         cache_key = f"search:{media_type}:{lang}:{query}:{year or ''}"
         cached = storage.get_metadata(cache_key, "tmdb_search")
-        if cached: return cached
+        if cached: return cached, True
 
         params = {"query": query, "include_adult": "false", "language": lang}
         
         if year and media_type == "movie":
             params["year"] = year
         
-        data = await self._fetch(f"/search/{media_type}", params, logs=logs)
+        data, success = await self._fetch(f"/search/{media_type}", params, logs=logs)
+        if not success:
+            return [], False
+        
         results = (data or {}).get("results", [])
         
         if not results and year:
@@ -230,26 +250,34 @@ class TMDBProvider:
                 params["first_air_date_year"] = year
             else:
                 params.pop("year", None)
-            data_retry = await self._fetch(f"/search/{media_type}", params, logs=logs)
-            if data_retry: results = data_retry.get("results", [])
+            data_retry, retry_success = await self._fetch(f"/search/{media_type}", params, logs=logs)
+            if retry_success and data_retry: results = data_retry.get("results", [])
             
         storage.set_metadata(cache_key, "tmdb_search", results)
-        return results
+        return results, True
 
-    async def search_multi(self, query: str, year: Optional[str] = None, logs: Any = None, lang: str = "zh-CN") -> List[Dict]:
+    async def search_multi(self, query: str, year: Optional[str] = None, logs: Any = None, lang: str = "zh-CN") -> Tuple[List[Dict], bool]:
+        """
+        TMDB 多类型搜索接口
+        
+        Returns:
+            Tuple[List[Dict], bool]: (results, success)
+        """
         cache_key = f"search:multi:{lang}:{query}:{year or ''}"
         cached = storage.get_metadata(cache_key, "tmdb_search")
-        if cached: return cached
+        if cached: return cached, True
 
         params = {"query": query, "include_adult": "false", "language": lang}
         
-        data = await self._fetch("/search/multi", params, logs=logs)
-        results = (data or {}).get("results", [])
+        data, success = await self._fetch("/search/multi", params, logs=logs)
+        if not success:
+            return [], False
         
+        results = (data or {}).get("results", [])
         results = [r for r in results if r.get("media_type") in ["movie", "tv"]]
         
         storage.set_metadata(cache_key, "tmdb_search", results)
-        return results
+        return results, True
 
     async def smart_search(self, cn_name: Optional[str], en_name: Optional[str], year: Optional[str], media_type: str, logs: Any, anime_priority: bool = True, original_cn_name: Optional[str] = None) -> Optional[Dict]:
         def _log(msg):
@@ -285,7 +313,25 @@ class TMDBProvider:
                         _log(f"┃   ℹ️ 已命中高置信度候选 ({max(temp_scored):.0f}分)，跳过后续查询")
                         break
 
-                res_list = await self.search(q, year, media_type, logs=logs, lang=lang)
+                res_list = None
+                success = False
+                
+                if idx == 0:
+                    MAX_RETRIES = 3
+                    for attempt in range(MAX_RETRIES):
+                        res_list, success = await self.search(q, year, media_type, logs=logs, lang=lang)
+                        if success: break
+                        if attempt < MAX_RETRIES - 1:
+                            _log(f"┃   ⚠️ 完整标题搜索网络失败，正在重试 ({attempt + 2}/{MAX_RETRIES})...")
+                            await asyncio.sleep(1)
+                    if not success:
+                        _log(f"┃   ❌ 完整标题搜索网络失败，已重试 {MAX_RETRIES} 次，中止本次识别")
+                        return None
+                else:
+                    res_list, success = await self.search(q, year, media_type, logs=logs, lang=lang)
+                    if not success:
+                        _log(f"┃   ⚠️ 分词搜索网络失败，跳过此查询")
+                        continue
                 
                 if idx == 0 and len(res_list) == 1:
                     _log(f"┃   🪄 全名搜索唯一命中，确认为高置信度目标")
@@ -389,7 +435,25 @@ class TMDBProvider:
                         _log(f"┃   ℹ️ 已命中高置信度候选 ({max(temp_scored):.0f}分)，跳过后续查询")
                         break
 
-                res_list = await self.search_multi(q, year, logs=logs, lang=lang)
+                res_list = None
+                success = False
+                
+                if idx == 0:
+                    MAX_RETRIES = 3
+                    for attempt in range(MAX_RETRIES):
+                        res_list, success = await self.search_multi(q, year, logs=logs, lang=lang)
+                        if success: break
+                        if attempt < MAX_RETRIES - 1:
+                            _log(f"┃   ⚠️ 完整标题搜索网络失败，正在重试 ({attempt + 2}/{MAX_RETRIES})...")
+                            await asyncio.sleep(1)
+                    if not success:
+                        _log(f"┃   ❌ 完整标题搜索网络失败，已重试 {MAX_RETRIES} 次，中止本次识别")
+                        return None
+                else:
+                    res_list, success = await self.search_multi(q, year, logs=logs, lang=lang)
+                    if not success:
+                        _log(f"┃   ⚠️ 分词搜索网络失败，跳过此查询")
+                        continue
                 
                 if idx == 0 and len(res_list) == 1:
                     _log(f"┃   🪄 全名搜索唯一命中，确认为高置信度目标")

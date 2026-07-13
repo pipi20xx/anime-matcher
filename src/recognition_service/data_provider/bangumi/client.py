@@ -3,8 +3,8 @@ import asyncio
 import datetime
 import os
 from typing import List, Optional, Dict, Any, Tuple
-from ...bgm_matcher.logic import BangumiMatcher
-from ...tmdb_matcher.logic import TMDBMatcher
+from recognition_engine.bgm_matcher.logic import BangumiMatcher
+from recognition_engine.tmdb_matcher.logic import TMDBMatcher
 from ..tmdb.client import TMDBProvider as TMDBClient
 
 class BangumiProvider:
@@ -179,7 +179,7 @@ class BangumiProvider:
                 tmdb_lang = "ja-JP" if lang_hint == "ja" else "zh-CN"
                 q_label = "日文原名" if lang_hint == "ja" else "中文标题"
                 
-                results = await tmdb.search(query, year, endpoint, logs=logs, lang=tmdb_lang)
+                results, _ = await tmdb.search(query, year, endpoint, logs=logs, lang=tmdb_lang)
                 _log(f"┃   ├─ 🔍 [{q_label}] '{query}' -> 发现 {len(results)} 个候选人")
                 
                 for cand in results:

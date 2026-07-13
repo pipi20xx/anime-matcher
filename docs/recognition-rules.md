@@ -1,6 +1,6 @@
 # 自定义识别词 (Custom Rules)
 
-**核心处理文件**: `src/anime_matcher/title_cleaner.py` (逻辑位于 `pre_clean` 函数)
+**核心处理文件**: `src/recognition_engine/title_cleaner.py` (逻辑位于 `pre_clean` 函数)
 
 此环节拥有双重功能：既可以作为 **“橡皮擦”** 清除无效词汇（屏蔽），也可以作为 **“记号笔”** 提前强制标记正确的 ID 或季数（提取）。
 

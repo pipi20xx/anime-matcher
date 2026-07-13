@@ -1,11 +1,15 @@
+"""
+RenderEngine - 专家级规则渲染引擎
+对齐主项目 recognition/render/engine.py，适配独立版（用 tmdb_provider 代替 MetaCacheManager）。
+"""
 import regex as re
-import asyncio
+import httpx
 from typing import Dict, Any, List, Optional
 
 class RenderEngine:
     """
-    专家级规则渲染引擎 (L1/L2 Processing)
-    支持：标题翻译、集数偏移、强制 ID 重定向、元数据精修。
+    核心规则引擎：负责执行各种复杂的自定义渲染逻辑。
+    支持：标题翻译、集数偏移、强制 ID 重定向、元数据精修、链式规则。
     """
     @staticmethod
     def evaluate_includes(expression: str, filename: str) -> bool:
@@ -36,17 +40,17 @@ class RenderEngine:
                 if val is not None:
                     expr = expr.replace(str(key).upper(), str(val))
             if not re.match(r'^[\d\s\+\-\*\/\%\(\)\.]+$', expr):
-                return expression 
+                return expression
             return int(eval(expr, {"__builtins__": {}}, {}))
         except:
             return expression
 
     @staticmethod
     async def apply_rules(
-        final_result: Dict[str, Any], 
+        final_result: Dict[str, Any],
         local_result: Dict[str, Any],
-        raw_filename: str, 
-        rules: List[str], 
+        raw_filename: str,
+        rules: List[str],
         logs: List[str],
         tmdb_provider: Any = None
     ) -> Dict[str, Any]:
@@ -54,7 +58,7 @@ class RenderEngine:
         执行渲染规则。直接修改传入的 Dict 对象。
         """
         if not rules: return final_result
-        
+
         skip_count = 0
         def get_meta_context():
             return {
@@ -77,7 +81,7 @@ class RenderEngine:
         for idx, rule in enumerate(rules):
             rule = rule.strip()
             if not rule or rule.startswith("#"): continue
-            
+
             is_remote = rule.startswith("[REMOTE]")
             source_tag = "[社区]" if is_remote else "[私有]"
             actual_line = rule[8:] if is_remote else rule
@@ -106,12 +110,12 @@ class RenderEngine:
                     parts = actual_line.split(" => ", 1)
                     src_match = re.search(r"\{\[(.*?)\]\}", parts[0])
                     tgt_match = re.search(r"\{\[(.*?)\]\}", parts[1])
-                    if not src_match or not tgt_match: 
+                    if not src_match or not tgt_match:
                         skip_count += 1; continue
 
                     src_conds, tgt_mods = src_match.group(1), tgt_match.group(1)
                     cond_dict = {item.split("=")[0].strip().lower(): item.split("=")[1].strip() for item in src_conds.split(";") if "=" in item}
-                    
+
                     tmdb_id = final_result.get("tmdb_id", "")
                     curr_s, curr_e = int(local_result.get("season") or 1), int(local_result.get("episode") or 0)
                     m_type = local_result.get("type", "tv")
@@ -149,21 +153,65 @@ class RenderEngine:
                         if isinstance(new_e, int):
                             local_result["episode"] = new_e
                             final_result["episode"] = str(new_e)
-                            logs.append(f"┃  => [Mod] 集数: E{old_e} -> E{new_e}")
+                            log_msg = f"┃  => [Mod] 集数: E{old_e} -> E{new_e}"
+                            # 合集区间处理
+                            if local_result.get("is_batch") and local_result.get("end_episode"):
+                                old_end = local_result.get("end_episode")
+                                new_end = RenderEngine._eval_math(e_formula, {"EP": old_end, "S": get_meta_context()["S"], "YEAR": get_meta_context()["YEAR"]})
+                                if isinstance(new_end, int):
+                                    local_result["end_episode"] = new_end
+                                    final_result["episode"] = f"{new_e}-{new_end}"
+                                    log_msg = f"┃  => [Mod] 集数区间: E{old_e}-E{old_end} -> E{new_e}-E{new_end}"
+                            logs.append(log_msg)
                     continue
 
-                # 3. 正则替换翻译 (A => B)
+                # 3. 正则替换/提取/链式 (A => B)
                 if " => " in actual_line:
                     pattern_str, replacement = actual_line.split(" => ", 1)
                     pattern_str, replacement = pattern_str.strip(), replacement.strip()
-                    
+                    chain_rules = None
+                    if replacement.startswith("&&"):
+                        chain_rules, replacement = replacement[2:].strip(), ""
+
+                    # 提取模式 {[key=value]}
+                    if replacement.startswith("{[") and replacement.endswith("]}"):
+                        match = re.search(pattern_str, raw_filename, flags=re.I)
+                        if match:
+                            logs.append(f"┣ 🏷️  [Render]{source_tag} 命中提取: {pattern_str}")
+                            try: expanded_content = match.expand(replacement[2:-2])
+                            except: expanded_content = replacement[2:-2]
+                            mods = {item.split("=")[0].strip().lower(): item.split("=")[1].strip() for item in expanded_content.split(";") if "=" in item}
+                            for k, v in mods.items():
+                                if k == "e":
+                                    val_to_set = RenderEngine._eval_math(v, get_meta_context())
+                                    if isinstance(val_to_set, int):
+                                        local_result["episode"] = val_to_set
+                                        final_result["episode"] = str(val_to_set)
+                                        logs.append(f"┃  => [Set] 集数: {val_to_set}")
+                                elif k == "s":
+                                    local_result["season"] = int(v)
+                                    final_result["season"] = int(v)
+                                    logs.append(f"┃  => [Set] 季数: {v}")
+                                elif k == "tmdbid":
+                                    await fetch_tmdb_update(v, "tv")
+                        else: skip_count += 1
+                        continue
+
+                    # 正则翻译
                     if re.search(pattern_str, raw_filename, flags=re.I):
                         logs.append(f"┣ 🏷️  [Render]{source_tag} 命中翻译: {pattern_str} -> {replacement}")
-                        # 同时修改 local 和 final 中的相关字段
                         for target in [local_result, final_result]:
                             for field in ["cn_name", "en_name", "title", "processed_name"]:
                                 if target.get(field):
                                     target[field] = re.sub(pattern_str, replacement, target[field], flags=re.I)
+                        # 非空替换结果自动添加为标签
+                        if replacement and not chain_rules:
+                            if "tags" not in local_result: local_result["tags"] = []
+                            if replacement not in local_result["tags"]:
+                                local_result["tags"].append(replacement)
+                        # 链式规则
+                        if chain_rules:
+                            await RenderEngine.apply_rules(final_result, local_result, raw_filename, [chain_rules], logs, tmdb_provider)
                     else: skip_count += 1
             except Exception as e:
                 logs.append(f"┣ ❌ [Error]{source_tag} 规则 #{idx+1} 异常: {str(e)}")
