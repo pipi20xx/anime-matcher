@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QAppl
 from PyQt6.QtCore import Qt
 from src.gui.tabs.main_tab import MainTab
 from src.gui.tabs.settings_tab import SettingsTab
+from src.gui.tabs.log_tab import LogTab
 from src.gui.rule_manager import RuleManagerWidget
 
 class VideoRenamerGUI(QMainWindow):
@@ -27,11 +28,13 @@ class VideoRenamerGUI(QMainWindow):
         # 2. 实例化各个解耦后的组件
         self.main_tab = MainTab(self)
         self.rule_tab = RuleManagerWidget()
+        self.log_tab = LogTab(self)
         self.settings_tab = SettingsTab(self)
         
         # 3. 添加页签
         self.tab_widget.addTab(self.main_tab, "主界面")
         self.tab_widget.addTab(self.rule_tab, "识别规则管理")
+        self.tab_widget.addTab(self.log_tab, "操作日志")
         self.tab_widget.addTab(self.settings_tab, "设置")
         
         # 4. 开启全局拖拽接受

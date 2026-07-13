@@ -3,7 +3,6 @@ name: Build PC Client
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
     paths:
       - 'anime-matcher-pc/**'
       - 'src/**'
@@ -14,7 +13,41 @@ permissions:
   contents: write
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read-version.outputs.version }}
+      should-release: ${{ steps.check-release.outputs.should-release }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Read VERSION file
+        id: read-version
+        run: |
+          VERSION=$(cat anime-matcher-pc/VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📋 当前版本号: $VERSION"
+
+      - name: Check if release already exists
+        id: check-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.read-version.outputs.version }}"
+          TAG="v${VERSION}"
+          echo "🔍 检查 tag $TAG 是否已存在..."
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "⚠️  版本 $TAG 已存在，跳过本次发版"
+            echo "should-release=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ 版本 $TAG 不存在，将进行发版"
+            echo "should-release=true" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: check-version
+    if: needs.check-version.outputs.should-release == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout Code
@@ -53,14 +86,11 @@ jobs:
 
       - name: Package Release
         shell: bash
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          # 确定 版本号
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-          else
-            VERSION="v1.0.${{ github.run_number }}"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          TAG="v${VERSION}"
+          echo "TAG=$TAG" >> $GITHUB_ENV
 
           # 组装发布目录 (EXE + data 占位)
           mkdir -p release/AnimeProRenamer
@@ -68,24 +98,23 @@ jobs:
           mkdir -p release/AnimeProRenamer/data
 
           cd release
-          powershell "Compress-Archive -Path AnimeProRenamer -DestinationPath ../AnimeProRenamer_${VERSION}_Win64.zip"
+          powershell "Compress-Archive -Path AnimeProRenamer -DestinationPath ../AnimeProRenamer_${TAG}_Win64.zip"
 
-      - name: Create Tag (for main branch pushes)
-        if: github.ref == 'refs/heads/main'
+      - name: Create Tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a ${{ env.VERSION }} -m "PC Client Release ${{ env.VERSION }}"
-          git push origin ${{ env.VERSION }}
+          git tag -a ${{ env.TAG }} -m "PC Client Release ${{ env.TAG }}"
+          git push origin ${{ env.TAG }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: AnimeProRenamer ${{ env.VERSION }}
-          files: AnimeProRenamer_${{ env.VERSION }}_Win64.zip
+          tag_name: ${{ env.TAG }}
+          name: AnimeProRenamer ${{ env.TAG }}
+          files: AnimeProRenamer_${{ env.TAG }}_Win64.zip
           body: |
-            ## 🚀 AnimeProRenamer ${{ env.VERSION }}
+            ## 🚀 AnimeProRenamer ${{ env.TAG }}
 
             由 GitHub Actions 自动编译生成的 Windows 桌面发行版本。
 
@@ -95,7 +124,7 @@ jobs:
             - **功能对齐**: 与主项目 API 字段、日志格式、规则系统完全一致
 
             ### 📦 使用方式
-            1. 下载并解压 `AnimeProRenamer_${{ env.VERSION }}_Win64.zip`
+            1. 下载并解压 `AnimeProRenamer_${{ env.TAG }}_Win64.zip`
             2. 进入 `AnimeProRenamer/` 目录
             3. 运行 `AnimeProRenamer.exe`
             4. 首次使用请在 **设置** 页签配置 TMDB API Key
@@ -104,6 +133,7 @@ jobs:
             > ${{ github.event.head_commit.message }}
 
             ### 🛠️ 构建详情
+            - **版本号**: `${{ needs.check-version.outputs.version }}`
             - **构建时间**: `${{ github.event.head_commit.timestamp }}`
             - **流水线 ID**: `${{ github.run_number }}`
             - **目标平台**: Windows x64 (10/11)

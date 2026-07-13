@@ -1,9 +1,9 @@
 import os
 import urllib.parse
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
-                             QGroupBox, QTextEdit, QPushButton, QTableWidget, 
-                             QTableWidgetItem, QProgressBar, QHeaderView, 
-                             QMessageBox, QFormLayout, QCheckBox, QLineEdit, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
+                             QGroupBox, QTextEdit, QPushButton, QTableWidget,
+                             QTableWidgetItem, QHeaderView,
+                             QMessageBox, QFormLayout, QCheckBox, QLineEdit,
                              QComboBox, QFileDialog)
 from PyQt6.QtCore import Qt
 from src.gui.worker import RenameWorker
@@ -83,7 +83,7 @@ class MainTab(QWidget):
         
         custom_group.setLayout(custom_layout)
         self.top_splitter.addWidget(custom_group)
-        self.layout.addWidget(self.top_splitter, 1)
+        self.layout.addWidget(self.top_splitter, 2)
 
         # --- 2. 中部：预览表格 ---
         preview_group = QGroupBox("预览/结果")
@@ -93,19 +93,9 @@ class MainTab(QWidget):
         self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         preview_layout.addWidget(self.preview_table)
         preview_group.setLayout(preview_layout)
-        self.layout.addWidget(preview_group, 1)
+        self.layout.addWidget(preview_group, 3)
 
-        # --- 3. 下部：日志与操作 ---
-        progress_group = QGroupBox("操作日志与进度")
-        progress_layout = QVBoxLayout()
-        self.progress_bar = QProgressBar()
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        progress_layout.addWidget(self.progress_bar)
-        progress_layout.addWidget(self.log_output)
-        progress_group.setLayout(progress_layout)
-        self.layout.addWidget(progress_group, 1)
-
+        # --- 3. 下部：操作按钮 ---
         action_layout = QHBoxLayout()
         self.preview_btn = QPushButton("预览重命名")
         self.preview_btn.clicked.connect(lambda: self.start_processing(preview_only=True))
@@ -183,7 +173,9 @@ class MainTab(QWidget):
     def clear_file_list(self):
         self.file_list.clear()
         self.preview_table.setRowCount(0)
-        self.progress_bar.setValue(0)
+        # 通过主窗口访问日志 Tab 重置进度
+        if hasattr(self.parent_window, 'log_tab'):
+            self.parent_window.log_tab.reset()
 
     def start_processing(self, preview_only=False):
         file_text = self.file_list.toPlainText()
@@ -206,15 +198,21 @@ class MainTab(QWidget):
         }
 
         self.preview_table.setRowCount(0)
-        self.progress_bar.setValue(0)
         self.set_ui_enabled(False)
 
+        # 获取日志 Tab 并重置
+        log_tab = self.parent_window.log_tab
+        log_tab.reset()
+
         self.worker = RenameWorker(file_paths, config_data, preview_only)
-        self.worker.log_signal.connect(self.log_output.append)
-        self.worker.progress_signal.connect(self.progress_bar.setValue)
+        self.worker.log_signal.connect(log_tab.append)
+        self.worker.progress_signal.connect(log_tab.set_progress)
         self.worker.preview_signal.connect(self.update_preview_table)
         self.worker.finished_signal.connect(self.processing_finished)
         self.worker.start()
+
+        # 自动切换到日志 Tab
+        self.parent_window.tab_widget.setCurrentWidget(log_tab)
 
     def update_preview_table(self, old, new, main, season):
         row = self.preview_table.rowCount()

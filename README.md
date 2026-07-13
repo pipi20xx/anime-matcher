@@ -40,6 +40,13 @@ src/
 │       └── reporter.py          #     审计日志汇报
 │
 └── anitopy/                     # Anitopy C++ 绑定库
+
+anime-matcher-pc/                # 桌面端客户端 (可选，非必需)
+├── main.py                      #   PyQt6 启动入口
+└── src/
+    ├── core/                    #   识别处理器 + 重命名引擎
+    ├── gui/                     #   PyQt6 界面 (主界面/规则管理/设置)
+    └── utils/                   #   路径桥接/配置/规则数据库
 ```
 
 ### Pipeline 流程
@@ -267,6 +274,22 @@ cd anime-matcher && docker-compose up -d
 pip install -e .
 PYTHONPATH=src python -m recognition_service.main
 ```
+
+### 桌面端客户端 (可选)
+
+`anime-matcher-pc/` 是一个基于 PyQt6 的桌面端重命名工具，直接调用本项目的 Pipeline 引擎，适合不想部署 API 服务的个人用户。
+
+> 该客户端是**独立的可选组件**，不影响核心识别服务的运行。仅需要 API 服务的用户无需安装。
+
+```bash
+# 安装桌面端额外依赖
+pip install -r anime-matcher-pc/requirements.txt
+
+# 启动 GUI
+cd anime-matcher-pc && python main.py
+```
+
+详见 [anime-matcher-pc/README.md](./anime-matcher-pc/README.md)。
 
 ### 环境变量
 
