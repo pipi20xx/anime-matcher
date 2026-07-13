@@ -81,7 +81,13 @@ src/
   "use_storage": false,
   "anime_priority": true,
   "bangumi_priority": false,
-  "bangumi_failover": true
+  "bangumi_failover": true,
+  "tmdb_api_key": null,
+  "tmdb_proxy": null,
+  "tmdb_id": null,
+  "tmdb_type": null,
+  "bangumi_token": null,
+  "bangumi_proxy": null
 }
 ```
 
@@ -94,12 +100,19 @@ src/
   "custom_groups": ["MILKs", "LoliHouse", "MILKs&LoliHouse"],
   "custom_render": ["@?{[tmdbid=273134;type=tv;e=13-24]} => {[s=2;e=EP-12]}"],
   "special_rules": ["^\\[(MILKs&LoliHouse)\\]\\s+(.+?)\\s+-\\s+(\\d{1,4}) => {[group=\\1;title=\\2;e=\\3]} # MLH定向"],
+  "force_filename": false,
+  "batch_enhancement": false,
   "with_cloud": true,
   "use_storage": true,
   "anime_priority": true,
   "bangumi_priority": false,
   "bangumi_failover": true,
-  "tmdb_api_key": "your_api_key_here"
+  "tmdb_api_key": "your_api_key_here",
+  "tmdb_proxy": null,
+  "tmdb_id": null,
+  "tmdb_type": null,
+  "bangumi_token": null,
+  "bangumi_proxy": null
 }
 ```
 
