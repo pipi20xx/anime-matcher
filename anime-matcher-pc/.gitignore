@@ -1,0 +1,66 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Virtual Environments ---
+.venv
+venv
+ENV
+env.bak
+venv.bak
+
+# --- Configuration & Secrets ---
+# 忽略本地生成的配置文件，防止泄露私有路径
+VideoRenamer_Qt6.ini
+*.ini.bak
+.env
+.secrets
+
+# --- Logs ---
+*.log
+ShowRenamer_Log_*.txt
+logs/
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Project Specific ---
+# 忽略旧版的备份脚本（如果不需要提交）
+# mp-pyqt-v2.py
+
+# 递归忽略核心算法目录中的冗余文件
+anime-matcher-main/**/__pycache__/
+anime-matcher-main/dist/
+anime-matcher-main/build/
+anime-matcher-main/.venv/
+anime-matcher-main
+123123
+VideoRenamer.db
+matcher_storage.db

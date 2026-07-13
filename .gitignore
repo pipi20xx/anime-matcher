@@ -159,4 +159,3 @@ data/*.db
 data/*.sqlite
 !data/.gitkeep
 新建文件夹
-anime-matcher-pc
