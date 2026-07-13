@@ -4,6 +4,7 @@ ParserStage - L1 本地解析阶段
 """
 import re
 import os
+import time
 from typing import Optional
 from ..context import RecognitionContext
 from recognition_engine.kernel import core_recognize
@@ -38,61 +39,75 @@ class ParserStage:
     """L1 解析 + 指纹预匹配"""
 
     @staticmethod
-    async def execute(ctx: RecognitionContext):
+    async def run(ctx: RecognitionContext):
+        start = time.time()
+
         # --- 加载特权提取规则 ---
-        if ctx.special_rules:
-            SpecialEpisodeHandler.load_external_rules(ctx.special_rules)
-            ctx.log(f"┃ [配置] 特权规则载入: {len(ctx.special_rules)} 条")
+        if ctx.all_privilege:
+            SpecialEpisodeHandler.load_external_rules(ctx.all_privilege)
+            ctx.log(f"┣ [临时规则] 已加载 {len(ctx.all_privilege)} 条临时特权规则")
 
-        # --- L1 内核解析 ---
-        meta = core_recognize(
-            input_name=ctx.filename,
-            custom_words=ctx.custom_words,
-            custom_groups=ctx.custom_groups,
-            original_input=ctx.original_filename,
-            current_logs=ctx.logs,
-            batch_enhancement=ctx.batch_enhancement,
-            force_filename=ctx.force_filename
-        )
-        ctx.raw_meta = meta
+        # --- 配置审计 ---
+        p_anime = "ON" if ctx.anime_priority else "OFF"
+        p_batch = "ON" if ctx.batch_enhance else "OFF"
+        p_fp = "ON" if ctx.use_fingerprint else "OFF"
+        p_bgm = "ON" if ctx.bangumi_priority else "OFF"
+        p_failover = "ON" if ctx.bangumi_failover else "OFF"
+        p_force_file = "ON" if ctx.force_filename else "OFF"
 
-        # 封装 L1 原始结果
-        ctx.local_result = {
-            "cn_name": meta.cn_name, "en_name": meta.en_name, "team": meta.resource_team,
-            "season": meta.begin_season or 1,
-            "episode": meta.begin_episode if isinstance(meta.begin_episode, int) else 1,
-            "is_batch": meta.is_batch,
-            "end_episode": meta.end_episode if isinstance(meta.end_episode, int) else None,
-            "type": ctx.tmdb_type if ctx.tmdb_type else (meta.type.value if hasattr(meta.type, "value") else str(meta.type)),
-            "resolution": meta.resource_pix, "platform": meta.resource_platform,
-            "source": meta.resource_type, "video_encode": meta.video_encode,
-            "audio_encode": meta.audio_encode, "subtitle": meta.subtitle_lang, "year": meta.year
-        }
+        ctx.log(f"🚀 --- [ANIME 深度审计流水线启动] ---")
+        ctx.log(f"┃ [待处理条目]: {ctx.filename}")
+        ctx.log(f"┃ [配置] 策略状态: 动漫优化[{p_anime}] | 合集增强[{p_batch}] | 智能记忆[{p_fp}] | BGM数据源优先[{p_bgm}] | BGM故障转移[{p_failover}] | 强制单文件[{p_force_file}]")
 
         # --- 指纹预匹配 (智能记忆) ---
-        current_tmdb_id = ctx.tmdb_id
-
-        # 优先级1: L1 识别结果中的强制 ID
-        if not current_tmdb_id and meta.forced_tmdbid:
-            current_tmdb_id = meta.forced_tmdbid
-            ctx.log(f"┃ [STAGE 1.5] 🚀 发现规则锁定 ID: {current_tmdb_id}")
-
-        # 优先级2: 文件名指纹记忆
-        if ctx.active_storage and not current_tmdb_id:
-            fp_match = await ctx.local_cache.get_fingerprint_match(ctx.filename, ctx.logs)
+        if ctx.use_fingerprint and not ctx.tmdb_data:
+            fp_match = await ctx.cache_dao.get_fingerprint_match(ctx.filename, ctx.logs)
             if fp_match:
-                current_tmdb_id = fp_match.get("id")
-                ctx.local_result["type"] = fp_match.get("type", ctx.local_result["type"])
-                ctx.tmdb_match = fp_match  # 标记为指纹命中
+                ctx.tmdb_data = {
+                    "id": fp_match["id"],
+                    "type": fp_match["type"],
+                    "source": "fingerprint_match"
+                }
+                ctx.log(f"┃ [智能记忆] ⚡ 记忆加速启动，将跳过冗余内核解析步骤")
 
-        # 优先级3: 旧版标题记忆 (向后兼容)
-        if ctx.active_storage and not current_tmdb_id:
-            from ..storage_manager import storage
-            pattern_key = f"{ctx.local_result['cn_name'] or ctx.local_result['en_name']}|{ctx.local_result['year']}"
-            memory = storage.get_memory(pattern_key)
-            if memory:
-                current_tmdb_id = memory['tmdb_id']
-                ctx.local_result['type'] = memory['media_type']
-                ctx.log(f"┃ [STORAGE] ⚡ 命中标题特征记忆: 自动锁定 ID {current_tmdb_id}")
+        # --- L1 内核解析 ---
+        kernel_logs = []
+        ctx.meta = core_recognize(
+            input_name=ctx.filename,
+            custom_words=ctx.all_noise,
+            custom_groups=ctx.all_groups,
+            original_input=ctx.original_filename,
+            current_logs=kernel_logs,
+            batch_enhancement=ctx.batch_enhance,
+            force_filename=ctx.force_filename
+        )
 
-        ctx.tmdb_id = current_tmdb_id
+        # 同步内核日志
+        for l in kernel_logs: ctx.log(l)
+
+        # --- 处理参数覆盖 ---
+        ParserStage._apply_forced_params(ctx)
+
+        ctx.add_perf("本地解析", start)
+
+    @staticmethod
+    def _apply_forced_params(ctx: RecognitionContext):
+        """处理强制参数覆盖 (对齐主项目 _apply_forced_params)"""
+        meta = ctx.meta
+
+        if ctx.forced_tmdb_id:
+            meta.forced_tmdbid = str(ctx.forced_tmdb_id)
+            ctx.log(f"┣ [强制参数] 🔧 强制 TMDB ID: {meta.forced_tmdbid}")
+
+        if ctx.forced_type:
+            ft = ctx.forced_type.lower()
+            # 智能记忆已命中时，以记忆中的类型为准
+            cached_type = ctx.tmdb_data.get("type") if ctx.tmdb_data else None
+            if cached_type:
+                from recognition_engine.data_models import MediaType
+                meta.type = MediaType.MOVIE if cached_type == "movie" else MediaType.TV
+                ctx.log(f"┣ [强制参数] ⚠️ 智能记忆已命中(type={cached_type})，忽略 forced_type={ft}，保持记忆类型")
+            else:
+                from recognition_engine.data_models import MediaType
+                meta.type = MediaType.MOVIE if ft == "movie" else MediaType.TV
+                ctx.log(f"┣ [强制参数] 🔧 强制类型: {ft}")

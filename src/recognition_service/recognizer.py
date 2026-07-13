@@ -3,6 +3,7 @@ RecognitionWorkflow - Pipeline 编排器
 对齐主项目 recognition/recognizer.py
 """
 import logging
+from typing import Tuple, Dict, Any, List
 from .context import RecognitionContext
 from .pipeline import ParserStage, MatcherStage, EnrichmentStage, MaintenanceStage
 from .renderer import ResultRenderer
@@ -12,33 +13,41 @@ logger = logging.getLogger("recognition_service.recognizer")
 
 class RecognitionWorkflow:
     """
-    识别工作流编排器：按顺序执行 Pipeline 各阶段。
+    Recognition Orchestrator (Layer 3)
+    High-level pipeline management.
     """
+    def __init__(self, ctx: RecognitionContext):
+        self.ctx = ctx
 
+    async def run(self) -> Dict[str, Any]:
+        # 1. 基础解析阶段 (Kernel + Rules)
+        await ParserStage.run(self.ctx)
+
+        # 2. 元数据匹配阶段 (Fingerprint + Cloud)
+        await MatcherStage.run(self.ctx)
+
+        # 3. 深度字段补全阶段 (Enrichment)
+        await EnrichmentStage.run(self.ctx)
+
+        # 4. 后处理与维护阶段 (Fingerprint Sync + Cache Update)
+        await MaintenanceStage.run(self.ctx)
+
+        # 5. 渲染与汇报阶段
+        return await ResultRenderer.apply_to_context(self.ctx)
+
+
+class MovieRecognizer:
+    """
+    识别入口 (对齐主项目 MovieRecognizer)
+    """
     @staticmethod
-    async def recognize(ctx: RecognitionContext):
-        """执行完整识别流程"""
-        try:
-            # === 配置审计 ===
-            ctx.report_config()
-
-            # === STAGE 1: L1 本地解析 ===
-            await ParserStage.execute(ctx)
-
-            # === STAGE 2: L2 云端对撞 ===
-            await MatcherStage.execute(ctx)
-
-            # === STAGE 2.5: L2.5 字段补全 ===
-            await EnrichmentStage.execute(ctx)
-
-            # === STAGE 3: 最终报告构建 + L3 渲染 ===
-            await ResultRenderer.execute(ctx)
-
-            # === STAGE 4: L3 记忆维护 ===
-            await MaintenanceStage.execute(ctx)
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            ctx.log(f"┗ ❌ 识别流程异常: {e}")
-            raise
+    async def recognize_full(filename: str, **kwargs) -> Tuple[Dict[str, Any], List[str]]:
+        """
+        全链路识别接口。
+        返回: (result_data, logs)
+        result_data 结构: { success, final_result, raw_meta, tmdb_match, logs }
+        """
+        ctx = RecognitionContext(filename, **kwargs)
+        workflow = RecognitionWorkflow(ctx)
+        result = await workflow.run()
+        return result, ctx.logs

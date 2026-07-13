@@ -3,42 +3,52 @@ RenderReporter - 审计日志汇报
 对齐主项目 recognition/render/reporter.py
 """
 from typing import Dict, Any, List
+from ..context import RecognitionContext
+
 
 class RenderReporter:
     """
     负责最终结论的汇报、日志打印及审计写入。
+    日志格式与主项目 recognition/render/reporter.py 完全对齐。
     """
     @staticmethod
-    def report_l1_audit(logs: List[str], l1_dict: Dict[str, Any]):
-        """L1 本地解析属性审计"""
-        logs.append("┃")
-        logs.append("┃ [DEBUG][STEP 7: 本地解析属性审计]: 原始提取结论")
-        label_map = {
-            "cn_name": "中文搜索块", "en_name": "英文搜索块", "type": "媒体类型",
-            "season": "季度", "episode": "集数", "team": "制作小组"
-        }
-        for k in ["cn_name", "en_name", "type", "season", "episode", "team"]:
-            if l1_dict.get(k): logs.append(f"┣ 🏷️ {label_map.get(k, k)}: {l1_dict[k]}")
-        logs.append("┗ ✅ 本地解析完成")
+    def report(ctx: RecognitionContext, data_packet: dict) -> dict:
+        """
+        最终结论汇报。直接写入 ctx.logs，返回完整的 data_packet。
+        """
+        # 1. 性能统计
+        ctx.log(f"⏱️ [性能审计]: 全链路耗时 {int(ctx.duration * 1000)}ms ({' | '.join(ctx.perf_stats)})")
 
-    @staticmethod
-    def report_final_audit(logs: List[str], final_dict: Dict[str, Any]):
-        """最终结果属性审计"""
-        logs.append("┃")
-        logs.append("┃ [DEBUG][STEP 9: 最终结果属性审计]: 融合结论 (final_result)")
-        label_map = {
-            "title": "最终标题", "tmdb_id": "TMDB 编号", "category": "媒体类型",
-            "season": "季度", "episode": "集数", "team": "制作小组",
-            "resolution": "分辨率", "video_encode": "视频编码",
-            "subtitle": "字幕语言", "processed_name": "渲染后标题"
-        }
-        for k in ["title", "tmdb_id", "category", "season", "episode", "team", "resolution", "video_encode", "subtitle", "processed_name"]:
-            val = final_dict.get(k)
-            logs.append(f"┣ 🔹 {label_map.get(k, k)}: {val if val else '-'}")
+        f = data_packet["final_result"]
 
-    @staticmethod
-    def report_summary(logs: List[str], final_dict: Dict[str, Any], duration: str):
-        """最终摘要"""
-        summary_text = f"{'['+final_dict.get('team','')+'] ' if final_dict.get('team') else ''}{final_dict.get('category')} S{final_dict.get('season')}E{final_dict.get('episode')}"
-        logs.append(f"┗ 🏁 识别完成：{summary_text} (总耗时: {duration})")
-        return summary_text
+        # 2. 控制台结论汇报
+        ctx.log("📢 [最终结论汇报 (标准化元数据)]")
+
+        sec_cat = f.get('secondary_category')
+        if str(sec_cat) == '123':
+            sec_cat = "未分类 (待修正)"
+
+        lines = [
+            f"🎬 标题 {{title}}: {f['title']}",
+            f"📆 年份 {{year}}: {f.get('year') or 'null'}",
+            f"🆔 TMDB ID {{tmdb_id}}: {f['tmdb_id']}",
+            f"🎦 类型 {{category}}: {f.get('category') or 'null'}",
+            f"📅 季号 {{season}}: {f.get('season', 1)} | 集号 {{episode}}: {f.get('episode', '')}",
+            f"🏷️ 二级分类 {{secondary_category}}: {sec_cat or 'null'}",
+            f"🌍 原产地 {{origin_country}}: {f.get('origin_country') or 'null'}",
+            f"👥 制作组 {{team}}: {f.get('team') or 'null'}",
+            f"📺 分辨率 {{resolution}}: {f.get('resolution') or 'null'}",
+            f"🎞️ 视频编码 {{video_encode}}: {f.get('video_encode') or 'null'}",
+            f"🔊 音频编码 {{audio_encode}}: {f.get('audio_encode') or 'null'}",
+            f"💬 字幕语言 {{subtitle}}: {f.get('subtitle') or 'null'}",
+            f"💿 介质来源 {{source}}: {f.get('source') or 'null'}",
+            f"📡 发布平台 {{platform}}: {f.get('platform') or 'null'}",
+            f"📄 渲染后名 {{processed_name}}: {f['processed_name']}",
+        ]
+
+        for i, line in enumerate(lines):
+            prefix = "┗" if i == len(lines) - 1 else "┣"
+            ctx.log(f"{prefix} {line}")
+
+        data_packet["logs"] = ctx.logs
+        return data_packet

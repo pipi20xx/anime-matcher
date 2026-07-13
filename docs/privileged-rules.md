@@ -1,6 +1,6 @@
 # 自定义特权规则 (Privileged Rules)
 
-**核心处理文件**: `backend/recognition_engine/special_episode_handler.py`
+**核心处理文件**: `src/recognition_engine/special_episode_handler.py`
 
 特权规则是**优先级最高**的提取规则，在识别流程的最早期执行。命中后：
 - **集数直接锁定**，不会被后续流程覆盖

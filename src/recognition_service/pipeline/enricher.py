@@ -1,25 +1,43 @@
 """
 EnrichmentStage - L2.5 元数据字段补全
-对齐主项目 recognition/pipeline/enricher.py（简化版，无 TmdbMateFull）
+对齐主项目 recognition/pipeline/enricher.py（简化版，无 TmdbMateFull / OfflineDAO）
 """
+import time
 from ..context import RecognitionContext
 
 
 class EnrichmentStage:
-    """L2.5 字段补全：将云端数据融合到 local_result 和 final_result"""
+    """L2.5 字段补全：将云端数据融合到 meta 和 tmdb_data"""
 
     @staticmethod
-    async def execute(ctx: RecognitionContext):
-        if not ctx.cloud_match:
-            return
+    async def run(ctx: RecognitionContext):
+        if not ctx.tmdb_data: return
+        start = time.time()
 
-        cloud = ctx.cloud_match
-        l1 = ctx.local_result
+        m_id = str(ctx.tmdb_data.get("id", ""))
+        m_type = ctx.tmdb_data.get("type", "tv")
 
-        # 类型修正
-        if cloud.get("media_type"):
-            l1["type"] = cloud["media_type"]
+        if not m_id: return
 
-        # 如果云端有季数信息，以云端为准（仅当本地未指定时）
-        if cloud.get("number_of_seasons") and not ctx.raw_meta.begin_season:
-            l1["season"] = 1
+        # 检查本地缓存是否有更完整的数据
+        if ctx.use_fingerprint:
+            cached = await ctx.cache_dao.get_metadata(m_id, m_type, ctx.logs)
+            if cached:
+                # 用缓存数据补全缺失字段
+                for f in ["poster_path", "backdrop_path", "overview", "release_date", "year",
+                           "genres", "original_language", "vote_average", "origin_country"]:
+                    if not ctx.tmdb_data.get(f) and cached.get(f):
+                        ctx.tmdb_data[f] = cached[f]
+
+        # 联网补全展示资料 (如果缓存也没有)
+        if not ctx.tmdb_data.get("poster_path") or not ctx.tmdb_data.get("overview"):
+            try:
+                online_details = await ctx.tmdb_client.get_details(m_id, m_type, [])
+                if online_details:
+                    for f in ["poster_path", "backdrop_path", "overview", "vote_average",
+                               "genres", "tagline", "cast"]:
+                        if not ctx.tmdb_data.get(f) and online_details.get(f):
+                            ctx.tmdb_data[f] = online_details.get(f)
+            except: pass
+
+        ctx.add_perf("深度补全", start)

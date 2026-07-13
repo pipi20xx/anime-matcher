@@ -3,13 +3,17 @@ RenderEngine - 专家级规则渲染引擎
 对齐主项目 recognition/render/engine.py，适配独立版（用 tmdb_provider 代替 MetaCacheManager）。
 """
 import regex as re
-import httpx
 from typing import Dict, Any, List, Optional
+
 
 class RenderEngine:
     """
     核心规则引擎：负责执行各种复杂的自定义渲染逻辑。
     支持：标题翻译、集数偏移、强制 ID 重定向、元数据精修、链式规则。
+
+    方法签名与主项目对齐：
+    apply_rules(data, raw_filename, rules, logger_logs, api_key) -> data
+    其中 data 包含 raw_meta / tmdb_match / final_result 三个子字典。
     """
     @staticmethod
     def evaluate_includes(expression: str, filename: str) -> bool:
@@ -46,48 +50,63 @@ class RenderEngine:
             return expression
 
     @staticmethod
-    async def apply_rules(
-        final_result: Dict[str, Any],
-        local_result: Dict[str, Any],
-        raw_filename: str,
-        rules: List[str],
-        logs: List[str],
-        tmdb_provider: Any = None
-    ) -> Dict[str, Any]:
+    async def apply_rules(data: Dict[str, Any], raw_filename: str, rules: List[str], logger_logs: List[str], api_key: str = None) -> Dict[str, Any]:
         """
-        执行渲染规则。直接修改传入的 Dict 对象。
+        执行渲染规则。直接修改传入的 data 对象。
+        data 结构: { "raw_meta": {...}, "tmdb_match": {...}, "final_result": {...} }
         """
-        if not rules: return final_result
-
+        meta = data["raw_meta"]
+        tmdb_match = data.get("tmdb_match")
+        if "tags" not in meta: meta["tags"] = []
         skip_count = 0
+
         def get_meta_context():
             return {
-                "EP": local_result.get("episode", 0),
-                "S": local_result.get("season", 1),
-                "YEAR": local_result.get("year", ""),
+                "EP": meta.get("begin_episode", 0),
+                "S": meta.get("begin_season", 1),
+                "YEAR": meta.get("year", ""),
             }
 
-        async def fetch_tmdb_update(new_id, new_type):
-            if not tmdb_provider: return
-            details = await tmdb_provider.get_details(str(new_id), new_type, logs=logs)
+        async def fetch_tmdb(new_id, new_type, title_log):
+            """TMDB 重定向：拉取新 ID 的详情并更新 data_packet"""
+            from ..data_provider.tmdb.client import TMDBProvider
+            from recognition_engine.tmdb_matcher.logic import TMDBMatcher
+
+            tmdb_provider = TMDBProvider(api_key=api_key)
+            details = await tmdb_provider.get_details(str(new_id), new_type, logger_logs)
             if details:
-                final_result["tmdb_id"] = str(details.get("id"))
-                final_result["title"] = details.get("title") or details.get("name")
-                final_result["year"] = str(details.get("year") or "")
-                final_result["poster_path"] = details.get("poster_path")
-                final_result["release_date"] = details.get("release_date")
-                logs.append(f"┃  => [Mod] TMDB 强制重定向: {final_result['title']} (ID:{new_id})")
+                data["tmdb_match"] = data.get("tmdb_match") or {}
+                data["tmdb_match"]["id"] = details.get("id")
+                data["tmdb_match"]["title"] = details.get("title") or details.get("name")
+                meta["type"] = new_type
+                if data.get("final_result"):
+                    data["final_result"]["tmdb_id"] = str(details.get("id"))
+                    data["final_result"]["title"] = details.get("title") or details.get("name")
+                    data["final_result"]["year"] = str(details.get("year") or "")
+                    data["final_result"]["poster_path"] = details.get("poster_path")
+                    data["final_result"]["release_date"] = details.get("release_date")
+                logger_logs.append(f"┃  => [Mod] TMDB重定向: {details.get('title') or details.get('name')} (ID:{new_id})")
+            else:
+                # 兜底：用 normalize 生成基本元数据
+                fallback = TMDBMatcher.normalize({"id": new_id, "name": ""}, media_type_hint=new_type)
+                data["tmdb_match"] = data.get("tmdb_match") or {}
+                data["tmdb_match"]["id"] = new_id
+                meta["type"] = new_type
+                if data.get("final_result"):
+                    data["final_result"]["tmdb_id"] = str(new_id)
+                logger_logs.append(f"┃  => [Mod] TMDB重定向(兜底): ID:{new_id}")
 
         for idx, rule in enumerate(rules):
             rule = rule.strip()
             if not rule or rule.startswith("#"): continue
 
+            # 判定规则来源
             is_remote = rule.startswith("[REMOTE]")
             source_tag = "[社区]" if is_remote else "[私有]"
             actual_line = rule[8:] if is_remote else rule
 
             try:
-                # 1. 偏移定位器 (A <> B >> Expr)
+                # --- Mode: Offset Locator (A <> B >> Expr) ---
                 if " <> " in actual_line and " >> " in actual_line:
                     parts = actual_line.split(" >> ", 1)
                     formula, locators = parts[1].strip(), parts[0].split(" <> ")
@@ -98,13 +117,14 @@ class RenderEngine:
                             captured_num = int(match.group(1))
                             new_ep = RenderEngine._eval_math(formula, {"EP": captured_num})
                             if isinstance(new_ep, int):
-                                local_result["episode"] = new_ep
-                                final_result["episode"] = str(new_ep)
-                                logs.append(f"┣ 🏷️  [Render]{source_tag} 偏移定位: {match.group(0)} -> E{new_ep}")
+                                meta["begin_episode"] = new_ep
+                                if data.get("final_result"): data["final_result"]["episode"] = new_ep
+                                logger_logs.append(f"┣ 🏷️  [Render]{source_tag} 偏移定位: {match.group(0)} -> E{new_ep}")
+                                data["render_hit"] = True
                         else: skip_count += 1
                     continue
 
-                # 2. 专家条件规则 (@?{...})
+                # --- Mode: Conditional / Expert (@?{...}) ---
                 if actual_line.startswith("@?{"):
                     if " => " not in actual_line: continue
                     parts = actual_line.split(" => ", 1)
@@ -115,11 +135,15 @@ class RenderEngine:
 
                     src_conds, tgt_mods = src_match.group(1), tgt_match.group(1)
                     cond_dict = {item.split("=")[0].strip().lower(): item.split("=")[1].strip() for item in src_conds.split(";") if "=" in item}
+                    if "tmdbid" in cond_dict and not tmdb_match:
+                        skip_count += 1; continue
 
-                    tmdb_id = final_result.get("tmdb_id", "")
-                    curr_s, curr_e = int(local_result.get("season") or 1), int(local_result.get("episode") or 0)
-                    m_type = local_result.get("type", "tv")
-                    curr_year = str(local_result.get("year") or "")
+                    tmdb_id = str(tmdb_match.get("id")) if tmdb_match else ""
+                    curr_s = int(meta.get("begin_season") or 1)
+                    curr_e = int(meta.get("begin_episode") or 0)
+                    m_type_raw = meta.get("type")
+                    m_type = m_type_raw.value if hasattr(m_type_raw, "value") else str(m_type_raw)
+                    curr_year = str(meta.get("year") or "")
 
                     match_fail = None
                     if "tmdbid" in cond_dict and cond_dict["tmdbid"] != tmdb_id: match_fail = "ID不符"
@@ -139,45 +163,51 @@ class RenderEngine:
                     if match_fail:
                         skip_count += 1; continue
 
-                    logs.append(f"┣ 🎯 [Render]{source_tag} 命中专家规则: {actual_line}")
+                    logger_logs.append(f"┣ 🎯 [Render]{source_tag} 命中专家规则: {actual_line}")
                     mod_dict = {item.split("=")[0].strip().lower(): item.split("=")[1].strip() for item in tgt_mods.split(";") if "=" in item}
                     if "tmdbid" in mod_dict:
-                        await fetch_tmdb_update(mod_dict["tmdbid"], mod_dict.get("type", m_type))
+                        new_id, new_type = mod_dict["tmdbid"], mod_dict.get("type", m_type)
+                        await fetch_tmdb(new_id, new_type, "")
                     if "year" in mod_dict:
-                        local_result["year"] = mod_dict["year"]; final_result["year"] = mod_dict["year"]
+                        old_y = meta.get("year"); meta["year"] = mod_dict["year"]
+                        if data.get("final_result"): data["final_result"]["year"] = meta["year"]
+                        if old_y != meta["year"]: logger_logs.append(f"┃  => [Mod] 年份: {old_y} -> {meta['year']}")
                     if "s" in mod_dict:
-                        local_result["season"] = int(mod_dict["s"]); final_result["season"] = int(mod_dict["s"])
+                        old_s = meta.get("begin_season"); meta["begin_season"] = int(mod_dict["s"])
+                        if data.get("final_result"): data["final_result"]["season"] = meta["begin_season"]
+                        if old_s != meta["begin_season"]: logger_logs.append(f"┃  => [Mod] 季数: S{old_s} -> S{meta['begin_season']}")
                     if "e" in mod_dict:
-                        e_formula, old_e = mod_dict["e"], local_result.get("episode")
+                        e_formula, old_e = mod_dict["e"], meta.get("begin_episode")
                         new_e = RenderEngine._eval_math(e_formula, get_meta_context())
                         if isinstance(new_e, int):
-                            local_result["episode"] = new_e
-                            final_result["episode"] = str(new_e)
+                            meta["begin_episode"] = new_e
                             log_msg = f"┃  => [Mod] 集数: E{old_e} -> E{new_e}"
-                            # 合集区间处理
-                            if local_result.get("is_batch") and local_result.get("end_episode"):
-                                old_end = local_result.get("end_episode")
+                            if meta.get("is_batch") and meta.get("end_episode"):
+                                old_end = meta.get("end_episode")
                                 new_end = RenderEngine._eval_math(e_formula, {"EP": old_end, "S": get_meta_context()["S"], "YEAR": get_meta_context()["YEAR"]})
                                 if isinstance(new_end, int):
-                                    local_result["end_episode"] = new_end
-                                    final_result["episode"] = f"{new_e}-{new_end}"
+                                    meta["end_episode"] = new_end
                                     log_msg = f"┃  => [Mod] 集数区间: E{old_e}-E{old_end} -> E{new_e}-E{new_end}"
-                            logs.append(log_msg)
+                            if data.get("final_result"):
+                                if meta.get("is_batch") and meta.get("end_episode"):
+                                    data["final_result"]["episode"] = f"{meta['begin_episode']}-{meta['end_episode']}"
+                                else:
+                                    data["final_result"]["episode"] = meta["begin_episode"]
+                            logger_logs.append(log_msg)
+                    data["render_hit"] = True
                     continue
 
-                # 3. 正则替换/提取/链式 (A => B)
+                # --- Mode: Regex ---
                 if " => " in actual_line:
                     pattern_str, replacement = actual_line.split(" => ", 1)
-                    pattern_str, replacement = pattern_str.strip(), replacement.strip()
-                    chain_rules = None
-                    if replacement.startswith("&&"):
-                        chain_rules, replacement = replacement[2:].strip(), ""
+                    pattern_str, replacement, chain_rules = pattern_str.strip(), replacement.strip(), None
+                    if replacement.startswith("&&"): chain_rules, replacement = replacement[2:].strip(), ""
 
                     # 提取模式 {[key=value]}
                     if replacement.startswith("{[") and replacement.endswith("]}"):
                         match = re.search(pattern_str, raw_filename, flags=re.I)
                         if match:
-                            logs.append(f"┣ 🏷️  [Render]{source_tag} 命中提取: {pattern_str}")
+                            logger_logs.append(f"┣ 🏷️  [Render]{source_tag} 命中提取: {pattern_str}")
                             try: expanded_content = match.expand(replacement[2:-2])
                             except: expanded_content = replacement[2:-2]
                             mods = {item.split("=")[0].strip().lower(): item.split("=")[1].strip() for item in expanded_content.split(";") if "=" in item}
@@ -185,36 +215,30 @@ class RenderEngine:
                                 if k == "e":
                                     val_to_set = RenderEngine._eval_math(v, get_meta_context())
                                     if isinstance(val_to_set, int):
-                                        local_result["episode"] = val_to_set
-                                        final_result["episode"] = str(val_to_set)
-                                        logs.append(f"┃  => [Set] 集数: {val_to_set}")
+                                        meta["begin_episode"] = val_to_set
+                                        if data.get("final_result"): data["final_result"]["episode"] = val_to_set
+                                        logger_logs.append(f"┃  => [Set] 集数: {val_to_set}")
                                 elif k == "s":
-                                    local_result["season"] = int(v)
-                                    final_result["season"] = int(v)
-                                    logs.append(f"┃  => [Set] 季数: {v}")
+                                    meta["begin_season"] = int(v)
+                                    if data.get("final_result"): data["final_result"]["season"] = int(v)
+                                    logger_logs.append(f"┃  => [Set] 季数: {v}")
                                 elif k == "tmdbid":
-                                    await fetch_tmdb_update(v, "tv")
-                        else: skip_count += 1
-                        continue
+                                    await fetch_tmdb(v, "tv", "ForceID")
+                            data["render_hit"] = True
+                        else: skip_count += 1; continue
 
                     # 正则翻译
                     if re.search(pattern_str, raw_filename, flags=re.I):
-                        logs.append(f"┣ 🏷️  [Render]{source_tag} 命中翻译: {pattern_str} -> {replacement}")
-                        for target in [local_result, final_result]:
-                            for field in ["cn_name", "en_name", "title", "processed_name"]:
-                                if target.get(field):
-                                    target[field] = re.sub(pattern_str, replacement, target[field], flags=re.I)
-                        # 非空替换结果自动添加为标签
-                        if replacement and not chain_rules:
-                            if "tags" not in local_result: local_result["tags"] = []
-                            if replacement not in local_result["tags"]:
-                                local_result["tags"].append(replacement)
-                        # 链式规则
-                        if chain_rules:
-                            await RenderEngine.apply_rules(final_result, local_result, raw_filename, [chain_rules], logs, tmdb_provider)
+                        logger_logs.append(f"┣ 🏷️  [Render]{source_tag} 命中翻译: {pattern_str} -> {replacement}")
+                        for field in ["cn_name", "en_name", "processed_name"]:
+                            if meta.get(field): meta[field] = re.sub(pattern_str, replacement, meta[field], flags=re.I)
+                        if data.get("final_result"): data["final_result"]["processed_name"] = meta.get("processed_name")
+                        if replacement and replacement not in meta["tags"]: meta["tags"].append(replacement)
+                        data["render_hit"] = True
+                        if chain_rules: await RenderEngine.apply_rules(data, raw_filename, [chain_rules], logger_logs, api_key)
                     else: skip_count += 1
             except Exception as e:
-                logs.append(f"┣ ❌ [Error]{source_tag} 规则 #{idx+1} 异常: {str(e)}")
+                logger_logs.append(f"┣ ❌ [Error]{source_tag} 规则 #{idx+1} 异常: {str(e)}")
 
-        if skip_count > 0: logs.append(f"┣ ⏩ 跳过 {skip_count} 条不匹配的自定义渲染词")
-        return final_result
+        if skip_count > 0: logger_logs.append(f"┣ ⏩ 跳过 {skip_count} 条不匹配的自定义渲染词")
+        return data
