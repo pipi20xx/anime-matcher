@@ -30,6 +30,9 @@ class PostProcessor:
 
         if not meta_obj.begin_episode:
             raw_ep = info_dict.get("episode_number")
+            # [Debug] 记录关键变量状态
+            v_logs.append(f"[Debug] raw_ep={raw_ep}, type={type(raw_ep).__name__ if raw_ep is not None else 'None'}")
+            
             if isinstance(raw_ep, list): 
                 # Anitopy 识别到了多个数字，执行安全检查
                 if len(raw_ep) >= 2:
@@ -52,7 +55,8 @@ class PostProcessor:
                     raw_ep = raw_ep[0]
 
             if not meta_obj.begin_episode:
-                val, debug4 = TagExtractor.validate_episode(raw_ep, processed_title)
+                # [Fix] 使用原始文件名进行集数校验，而不是清洗后的标题
+                val, debug4 = TagExtractor.validate_episode(raw_ep, input_name)
                 meta_obj.begin_episode = val
                 v_logs.extend(debug4)
 
@@ -377,7 +381,11 @@ class PostProcessor:
         
         current_logs.append(f"┣ [类型判定] 当前状态: 季号={meta_obj.begin_season}, 集数={meta_obj.begin_episode}, 类型={meta_obj.type.value.upper()}")
         
-        if meta_obj.forced_tmdbid: 
+        if fingerprint_data and fingerprint_data.get("type"):
+            cached_type = fingerprint_data.get("type")
+            meta_obj.type = MediaType.MOVIE if cached_type == "movie" else MediaType.TV
+            current_logs.append(f"┣ [类型判定] 智能记忆已命中(type={cached_type})，直接采用记忆类型: {meta_obj.type.value.upper()}")
+        elif meta_obj.forced_tmdbid: 
             current_logs.append(f"┣ [类型判定] 已锁定 TMDB ID，跳过自动类型判断")
         elif meta_obj.type == MediaType.AUTO:
             current_logs.append(f"┣ [类型判定] 类型为 AUTO，将由匹配结果自动确定")
