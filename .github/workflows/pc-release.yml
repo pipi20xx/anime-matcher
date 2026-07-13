@@ -1,0 +1,113 @@
+name: Build PC Client
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+    paths:
+      - 'anime-matcher-pc/**'
+      - 'src/**'
+      - '.github/workflows/pc-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # 安装主项目核心包 (recognition_engine, recognition_service, anitopy)
+          pip install -e .
+          # 安装 PC 客户端依赖 (PyQt6, peewee, requests 等)
+          pip install -r anime-matcher-pc/requirements.txt
+          # 安装打包工具
+          pip install pyinstaller
+
+      - name: Build EXE with PyInstaller
+        working-directory: anime-matcher-pc
+        run: |
+          pyinstaller --noconfirm --onedir --windowed `
+            --paths "." `
+            --collect-submodules "recognition_service" `
+            --collect-submodules "recognition_engine" `
+            --collect-submodules "anitopy" `
+            --collect-all "zhconv" `
+            --collect-all "cn2an" `
+            --hidden-import "regex" `
+            --hidden-import "httpx" `
+            --name "AnimeProRenamer" `
+            main.py
+
+      - name: Package Release
+        shell: bash
+        run: |
+          # 确定 版本号
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="v1.0.${{ github.run_number }}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+          # 组装发布目录 (EXE + data 占位)
+          mkdir -p release/AnimeProRenamer
+          cp -r anime-matcher-pc/dist/AnimeProRenamer/* release/AnimeProRenamer/
+          mkdir -p release/AnimeProRenamer/data
+
+          cd release
+          powershell "Compress-Archive -Path AnimeProRenamer -DestinationPath ../AnimeProRenamer_${VERSION}_Win64.zip"
+
+      - name: Create Tag (for main branch pushes)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ env.VERSION }} -m "PC Client Release ${{ env.VERSION }}"
+          git push origin ${{ env.VERSION }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: AnimeProRenamer ${{ env.VERSION }}
+          files: AnimeProRenamer_${{ env.VERSION }}_Win64.zip
+          body: |
+            ## 🚀 AnimeProRenamer ${{ env.VERSION }}
+
+            由 GitHub Actions 自动编译生成的 Windows 桌面发行版本。
+
+            ### ✨ 版本特性
+            - **内置 Pipeline 引擎**: 直接调用 `recognition_service` 五阶段流水线，无需额外下载内核
+            - **环境自持**: 已打入 `zhconv`, `cn2an`, `regex`, `httpx`, `PyQt6` 等全部依赖，解压即用
+            - **功能对齐**: 与主项目 API 字段、日志格式、规则系统完全一致
+
+            ### 📦 使用方式
+            1. 下载并解压 `AnimeProRenamer_${{ env.VERSION }}_Win64.zip`
+            2. 进入 `AnimeProRenamer/` 目录
+            3. 运行 `AnimeProRenamer.exe`
+            4. 首次使用请在 **设置** 页签配置 TMDB API Key
+
+            ### 📝 变更摘要
+            > ${{ github.event.head_commit.message }}
+
+            ### 🛠️ 构建详情
+            - **构建时间**: `${{ github.event.head_commit.timestamp }}`
+            - **流水线 ID**: `${{ github.run_number }}`
+            - **目标平台**: Windows x64 (10/11)
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

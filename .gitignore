@@ -159,3 +159,11 @@ data/*.db
 data/*.sqlite
 !data/.gitkeep
 新建文件夹
+
+# PC 客户端运行时文件 (anime-matcher-pc)
+anime-matcher-pc/VideoRenamer_Qt6.ini
+anime-matcher-pc/VideoRenamer.db
+anime-matcher-pc/data/
+anime-matcher-pc/build/
+anime-matcher-pc/dist/
+anime-matcher-pc/*.spec
