@@ -6,7 +6,16 @@ import os
 import time
 from typing import Optional, Dict, Any
 from ..context import RecognitionContext
-from .parser import _is_chinese, _split_title, _clean_privileged_title
+from .parser import _is_chinese, _clean_privileged_title
+
+
+def _split_title(title: str) -> list:
+    """按 / 分割特权标题，返回所有有效部分用于逐个搜索"""
+    if not title or '/' not in title:
+        return [title] if title else []
+
+    parts = [p.strip() for p in title.split('/') if p.strip()]
+    return parts
 
 
 class MatcherStage:

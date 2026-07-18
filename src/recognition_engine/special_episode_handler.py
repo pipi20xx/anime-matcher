@@ -156,6 +156,8 @@ class SpecialEpisodeHandler:
                     if group_name:
                         logs.append(f"┣ 字幕组: {group_name}")
                     logs.append(f"┣ 标题: {title}")
+                    if "s" in extra_meta:
+                        logs.append(f"┣ 季数: {extra_meta['s']}")
                     if episode is not None:
                         logs.append(f"┣ 集数: {episode}")
                     else:
